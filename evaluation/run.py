@@ -251,7 +251,14 @@ Available tasks: {', '.join(available_tasks)}
                 **evaluate_kwargs
             )
 
-            result_handler.save(task_name, results, args.model, puzzles)
+            result_handler.save(
+                task_name,
+                results,
+                args.model,
+                puzzles,
+                gen_kwargs=gen_kwargs,
+                gen_kwargs_cli=args.gen_kwargs,
+            )
             summary = _calculate_task_summary(results)
             logger.info(f"Accuracy: {summary['correct']}/{summary['total']} ({summary['accuracy']:.1%})")
             all_summaries[task_name] = summary
