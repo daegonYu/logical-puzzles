@@ -17,9 +17,9 @@ cd "$PROJECT_ROOT"
 
 # ============ Gemini 설정 ============
 MODEL="gemini/gemini-3-flash-preview"
-GEN_KWARGS="temperature=1.0,max_tokens=65536,top_p=0.95,top_k=64"
+GEN_KWARGS="temperature=1.0,max_tokens=32768,top_p=0.95,top_k=64,reasoning_effort=medium"
 # =====================================
-# ,reasoning_effort=high
+# ,reasoning_effort=high, medium, low, minimal
 
 MODEL_DIR_NAME="${MODEL//\//_}"
 LOG_DIR="$PROJECT_ROOT/results/$MODEL_DIR_NAME/log"
@@ -85,47 +85,48 @@ TASKS=(
     "causal_dag_ko_hard"
     "causal_dag_ko_medium"
 
-    "sudoku_en_easy"
-    "sudoku_en_hard"
-    "sudoku_en_medium"
-    "sudoku_ko_easy"
-    "sudoku_ko_hard"
-    "sudoku_ko_medium"
+    ###########################################
+    # "sudoku_en_easy"
+    # "sudoku_en_hard"
+    # "sudoku_en_medium"
+    # # "sudoku_ko_easy"
+    # # "sudoku_ko_hard"
+    # # "sudoku_ko_medium"
 
-    "yacht_dice_en_easy"
-    "yacht_dice_en_hard"
-    "yacht_dice_en_medium"
-    "yacht_dice_ko_easy"
-    "yacht_dice_ko_hard"
-    "yacht_dice_ko_medium"
+    # "yacht_dice_en_easy"
+    # "yacht_dice_en_hard"
+    # "yacht_dice_en_medium"
+    # # "yacht_dice_ko_easy"
+    # # "yacht_dice_ko_hard"
+    # # "yacht_dice_ko_medium"
 
-    "cryptarithmetic_en_easy"
-    "cryptarithmetic_en_hard"
-    "cryptarithmetic_en_medium"
-    "cryptarithmetic_ko_easy"
-    "cryptarithmetic_ko_hard"
-    "cryptarithmetic_ko_medium"
+    # "cryptarithmetic_en_easy"
+    # "cryptarithmetic_en_hard"
+    # "cryptarithmetic_en_medium"
+    # # "cryptarithmetic_ko_easy"
+    # # "cryptarithmetic_ko_hard"
+    # # "cryptarithmetic_ko_medium"
 
-    "inequality_en_easy"
-    "inequality_en_hard"
-    "inequality_en_medium"
-    "inequality_ko_easy"
-    "inequality_ko_hard"
-    "inequality_ko_medium"
+    # "inequality_en_easy"
+    # "inequality_en_hard"
+    # "inequality_en_medium"
+    # # "inequality_ko_easy"
+    # # "inequality_ko_hard"
+    # # "inequality_ko_medium"
 
-    "minesweeper_en_easy"
-    "minesweeper_en_hard"
-    "minesweeper_en_medium"
-    "minesweeper_ko_easy"
-    "minesweeper_ko_hard"
-    "minesweeper_ko_medium"
+    # "minesweeper_en_easy"
+    # "minesweeper_en_hard"
+    # "minesweeper_en_medium"
+    # # "minesweeper_ko_easy"
+    # # "minesweeper_ko_hard"
+    # # "minesweeper_ko_medium"
 
-    "number_baseball_en_easy"
-    "number_baseball_en_hard"
-    "number_baseball_en_medium"
-    "number_baseball_ko_easy"
-    "number_baseball_ko_hard"
-    "number_baseball_ko_medium"
+    # "number_baseball_en_easy"
+    # "number_baseball_en_hard"
+    # "number_baseball_en_medium"
+    # # "number_baseball_ko_easy"
+    # # "number_baseball_ko_hard"
+    # # "number_baseball_ko_medium"
 
 )
 
@@ -135,7 +136,7 @@ TOTAL_TASKS=${#TASKS[@]}
 CURRENT_TASK=0
 SUCCESS_COUNT=0
 FAIL_COUNT=0
-MAX_PARALLEL=5
+MAX_PARALLEL=4
 
 run_task() {
     local task=$1
@@ -159,7 +160,7 @@ run_task() {
         --gen-kwargs "$GEN_KWARGS" \
         --tasks "$task" \
         --async \
-        --max-concurrent 30 2>&1 | tee -a "$log_file"; then
+        --max-concurrent 15 2>&1 | tee -a "$log_file"; then
         echo -e "${GREEN}✓ $task Completed${NC}"
         echo "$task:SUCCESS" >> /tmp/eval_results_$$
         echo "" >> "$log_file"

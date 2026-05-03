@@ -17,7 +17,7 @@ cd "$PROJECT_ROOT"
 
 # ============ Gemini 설정 ============
 MODEL="gemini/gemini-3-flash-preview"
-GEN_KWARGS="temperature=1.0,max_tokens=65536,top_p=0.95,top_k=64"
+GEN_KWARGS="temperature=1.0,max_tokens=32768,top_p=0.95,top_k=64,reasoning_effort=medium"
 # =====================================
 
 echo -e "${BLUE}========================================${NC}"
