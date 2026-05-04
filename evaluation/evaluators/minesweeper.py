@@ -33,36 +33,32 @@ class MinesweeperEvaluator(BaseEvaluator):
     """Minesweeper evaluator with coordinate-set exact match scoring."""
 
     SYSTEM_PROMPT = """### Instructions
-You are an expert at solving Minesweeper puzzles.
+You are an expert at logical Minesweeper deduction.
 
 ### Rules
-- The grid is displayed with '#' for hidden cells and digits 0-8 for revealed cells.
-- A digit tells how many of its 8 neighbors are mines (horizontal, vertical, diagonal).
-- Adjacent = all 8 directions.
-- The total number of mines is given in the puzzle.
-- The puzzle has exactly one unique mine configuration.
+1. Treat '#' as hidden and digits 0–8 as revealed counts of mines among eight neighbors; use the stated total mine count.
+2. Assume a unique satisfying mine layout consistent with the given clues.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-List all mine coordinates as (row, col) pairs with 0-based indexing,
-sorted by row then column.
-End with a line exactly in the form:
+Your final line must be:
 Answer: (0,1), (0,3), (2,4), ...
-Use numeric coordinates only (no r/c prefixes, no extra text after Answer)."""
+(List every mine cell as "(row,col)" with 0-based row and column; sort by row then column; digits only, no prefixes.)
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 지뢰찾기(Minesweeper) 퍼즐 전문가입니다.
+당신은 지뢰찾기(Minesweeper) 논리 추론 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-- 격자에서 '#'은 숨겨진 셀, 0-8의 숫자는 공개된 셀입니다.
-- 각 숫자는 인접 8방향(가로/세로/대각선)의 이웃 중 지뢰가 있는 셀의 개수입니다.
-- 전체 지뢰 수는 문제에 명시됩니다.
-- 퍼즐은 정확히 하나의 고유한 지뢰 배치를 가집니다.
+1. '#'은 미공개, 0–8은 인접 8칸 중 지뢰 개수이며, 문제에 주어진 지뢰 총개수를 반영하세요.
+2. 단서와 일치하는 지뢰 배치가 유일하다고 가정하고 풀어야 합니다.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-모든 지뢰 좌표를 (행, 열) 쌍으로 0-인덱스 기준, 행-열 순 정렬로 나열하세요.
-마지막 줄은 다음 형식이어야 합니다:
+마지막 줄은 반드시 아래 형식으로 작성하세요:
 Answer: (0,1), (0,3), (2,4), ...
-좌표는 숫자만 사용하세요(r/c 접두어 금지, Answer 뒤 추가 텍스트 금지)."""
+(모든 지뢰 칸을 0부터 행·열 좌표로 "(행,열)" 형식에 맞게 나열; 행 우선 정렬; 숫자만, 접두어 없음.)
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""

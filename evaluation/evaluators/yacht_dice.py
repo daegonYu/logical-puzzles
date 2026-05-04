@@ -109,60 +109,31 @@ class YachtDiceEvaluator(BaseEvaluator):
 
     CONFIG = YachtDiceConfig()
 
-    SYSTEM_PROMPT_TEMPLATE = """### Instructions
-You are an expert at solving Yacht Dice optimization problems.
+    SYSTEM_PROMPT = """### Instructions
+You are an expert at Yacht Dice (Yahtzee-style) score assignment optimization.
 
 ### Rules
-Yacht Dice is a dice game where you roll 5 dice for 12 rounds and assign each round to a scoring category.
-
-Scoring Categories:
-- Aces through Sixes: Sum of dice showing that number
-- Three-of-a-Kind: Sum of all dice if at least 3 match
-- Four-of-a-Kind: Sum of all dice if at least 4 match
-- Full House: {full_house_points} points for exactly 3 of one number and 2 of another
-- Small Straight: {small_straight_points} points for 4 consecutive numbers
-- Large Straight: {large_straight_points} points for 5 consecutive numbers
-- Yacht: {yacht_points} points for all 5 dice showing the same number
-
-Upper Section Bonus: If the sum of Aces through Sixes is {bonus_threshold} or more, add {bonus_points} bonus points.
-
-Each category can only be used once.
+1. Follow the dice rolls, scoring categories, and point values exactly as given in the user message (including bonuses and category caps).
+2. Assign each of the 12 rounds to a category at most once so the objective (usually maximize total or a stated spotcheck sum) is met optimally unless the puzzle specifies otherwise.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-CRITICAL: Your very last line MUST be in this exact format:
-Answer: [number]"""
+Your final line must be:
+Answer: [number]
+"""
 
-    KOREAN_SYSTEM_PROMPT_TEMPLATE = """### 지시사항
-당신은 요트 다이스(Yacht Dice) 최적화 문제를 푸는 전문가입니다.
+    KOREAN_SYSTEM_PROMPT = """### 지시사항
+당신은 요트 다이스(Yacht Dice, 야추 스타일) 점수 배정 최적화 문제를 정확히 푸는 전문가입니다.
 
 ### 규칙
-요트 다이스는 5개의 주사위를 12라운드 굴리고, 각 라운드를 점수 칸에 한 번씩 배정하는 게임입니다.
-
-점수 칸:
-- 에이스~식스: 해당 숫자가 나온 주사위 눈의 합
-- 쓰리 카인드 / 포 카인드: 조건을 만족하면 주사위 5개 눈의 합
-- 풀하우스: 정확히 3개와 2개 조합이면 {full_house_points}점
-- 스몰 스트레이트: 연속 4개면 {small_straight_points}점
-- 라지 스트레이트: 연속 5개면 {large_straight_points}점
-- 요트: 5개가 모두 같으면 {yacht_points}점
-
-상단 보너스: 에이스~식스 합이 {bonus_threshold} 이상이면 {bonus_points}점 보너스.
-
-각 칸은 한 번만 사용할 수 있습니다.
+1. 사용자 메시지에 제시된 주사위·점수 칸·보너스 규칙을 그대로 따르세요.
+2. 12라운드를 각 칸에 최대 한 번씩 배정하여, 목표(총점 또는 별도로 제시된 스팟체크 합 등)에 맞게 최적으로 배치하세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-반드시 마지막 줄만 아래 형식이어야 합니다:
-Answer: [숫자]"""
-
-    # Used by BaseEvaluator's default fallback path.
-    SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.format(
-        full_house_points=CONFIG.full_house_points,
-        small_straight_points=CONFIG.small_straight_points,
-        large_straight_points=CONFIG.large_straight_points,
-        yacht_points=CONFIG.yacht_points,
-        bonus_threshold=CONFIG.bonus_threshold,
-        bonus_points=CONFIG.bonus_points,
-    )
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: [숫자]
+"""
 
     # ========================================================================
     # Language helpers
@@ -180,15 +151,7 @@ Answer: [숫자]"""
         return False
 
     def _render_system_prompt(self, korean: bool) -> str:
-        template = self.KOREAN_SYSTEM_PROMPT_TEMPLATE if korean else self.SYSTEM_PROMPT_TEMPLATE
-        return template.format(
-            full_house_points=self.CONFIG.full_house_points,
-            small_straight_points=self.CONFIG.small_straight_points,
-            large_straight_points=self.CONFIG.large_straight_points,
-            yacht_points=self.CONFIG.yacht_points,
-            bonus_threshold=self.CONFIG.bonus_threshold,
-            bonus_points=self.CONFIG.bonus_points,
-        )
+        return self.KOREAN_SYSTEM_PROMPT if korean else self.SYSTEM_PROMPT
 
     def _get_system_prompt(self, puzzle: Dict) -> str:
         return self._render_system_prompt(self._is_korean(puzzle))

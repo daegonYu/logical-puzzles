@@ -21,30 +21,58 @@ class KinshipEvaluator(BaseEvaluator):
     kinship_vision의 경우 이미지도 함께 전송
     """
     
-    SYSTEM_PROMPT = """### 지시사항
-당신은 한국어 가족 관계 호칭 문제를 푸는 전문가입니다.
+    SYSTEM_PROMPT = """### Instructions
+You are an expert at Korean family kinship (honorific) puzzles.
 
-### 규칙
-1. 주어진 가족 관계를 단계별로 분석하여 올바른 호칭을 찾으세요.
-2. 추론 과정을 명확히 설명하세요.
-3. 최종 결론을 아래 형식으로 제시하세요.
+### Rules
+1. Analyze the given relationship chain step by step to find the correct title for the target person.
+2. Map your conclusion to exactly one option letter (A–Z) from the multiple-choice list in the user message.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
-### 출력 형식
-마지막 줄은 반드시 다음 형식으로 작성하세요:
-Answer: A (A~Z 중 하나)
+### Output format
+Your final line must be:
+Answer: A
+(where A is a single letter A–Z matching a provided choice.)
 """
 
-    VISION_SYSTEM_PROMPT = """### 지시사항
-당신은 한국어 가족 관계 호칭 문제를 푸는 전문가입니다.
+    KOREAN_SYSTEM_PROMPT = """### 지시사항
+당신은 한국어 가족 관계 호칭 문제를 정확히 푸는 전문가입니다.
 
 ### 규칙
-1. 제공된 가족 사진을 참고하여, 주어진 대화에서 설명하는 인물을 찾으세요.
-2. 대화를 단계별로 분석하여 각 인물 간의 관계를 추론하고, 그 과정을 명확히 설명하세요.
-3. 최종 결론을 아래 형식으로 제시하세요.
+1. 주어진 관계를 단계별로 분석하여 대상에 대한 올바른 호칭을 찾으세요.
+2. 사용자 메시지의 보기 중 정확히 하나의 선택지 문자(A~Z)만 고르세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-마지막 줄은 반드시 다음 형식으로 작성하세요:
-Answer: A (A~Z 중 하나)
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: A (A~Z 중 보기에 해당하는 한 글자)
+"""
+
+    VISION_SYSTEM_PROMPT = """### Instructions
+You are an expert at Korean family kinship puzzles that include a reference photo.
+
+### Rules
+1. Use the provided family photo together with the dialogue to identify who is being described.
+2. Map your conclusion to exactly one option letter (A–Z) from the multiple-choice list in the user message.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
+
+### Output format
+Your final line must be:
+Answer: A
+(where A is a single letter A–Z matching a provided choice.)
+"""
+
+    KOREAN_VISION_SYSTEM_PROMPT = """### 지시사항
+당신은 가족 사진이 함께 주어지는 한국어 가족 호칭 문제를 정확히 푸는 전문가입니다.
+
+### 규칙
+1. 제공된 가족 사진과 대화를 함께 사용하여 묻는 인물을 특정하세요.
+2. 사용자 메시지의 보기 중 정확히 하나의 선택지 문자(A~Z)만 고르세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
+
+### 출력 형식
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: A (A~Z 중 보기에 해당하는 한 글자)
 """
     
     def __init__(self):
@@ -81,7 +109,7 @@ Answer: A (A~Z 중 하나)
         """
         # kinship_vision인 경우 이미지 포함
         if task_name == "kinship_vision":
-            system_prompt = self.VISION_SYSTEM_PROMPT
+            system_prompt = self.KOREAN_VISION_SYSTEM_PROMPT
             image_base64 = self._get_image_base64()
             
             if image_base64:
@@ -110,7 +138,7 @@ Answer: A (A~Z 중 하나)
         else:
             # 일반 kinship (텍스트만)
             messages = [
-                {"role": "system", "content": self.SYSTEM_PROMPT},
+                {"role": "system", "content": self.KOREAN_SYSTEM_PROMPT},
                 {"role": "user", "content": puzzle["question"]}
             ]
         

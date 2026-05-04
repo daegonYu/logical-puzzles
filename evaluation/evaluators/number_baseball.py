@@ -28,54 +28,33 @@ class NumberBaseballEvaluator(BaseEvaluator):
     when predicted answer doesn't match expected answer exactly.
     """
 
-    SYSTEM_PROMPT = (
-        "You are an expert logical reasoning assistant specialized in solving "
-        "Bulls and Cows (Number Baseball) puzzles.\n"
-        "\n"
-        "Rules of Bulls and Cows:\n"
-        "- The secret is a sequence of unique digits (0-9). Leading zeros are "
-        "allowed (e.g., '012' is a valid 3-digit secret)\n"
-        "- A \"Strike\" (S) means a correct digit in the correct position\n"
-        "- A \"Ball\" (B) means a correct digit in the wrong position\n"
-        "- You need to find the unique number that satisfies ALL given hints\n"
-        "\n"
-        "Approach:\n"
-        "1. Analyze each hint to understand what digits are in the secret number\n"
-        "2. Use the strike and ball counts to determine positions\n"
-        "3. Apply logical deduction to eliminate impossible combinations\n"
-        "4. Verify your answer against all hints before responding\n"
-        "\n"
-        "IMPORTANT OUTPUT RULES:\n"
-        "- End with exactly one final line in this format: Answer: <digits>\n"
-        "- <digits> must have the same length as the puzzle's secret number\n"
-        "  (infer from hints/question)\n"
-        "- Output digits only (no spaces, commas, parentheses, or extra text)\n"
-        "- Do not write anything after the final Answer line."
-    )
+    SYSTEM_PROMPT = """### Instructions
+You are an expert at Bulls and Cows (Number Baseball) puzzles.
 
-    KOREAN_SYSTEM_PROMPT = (
-        "당신은 숫자 야구(Bulls and Cows) 퍼즐을 푸는 논리적 추론 전문가입니다.\n"
-        "\n"
-        "숫자 야구 규칙:\n"
-        "- 비밀 숫자는 서로 다른 자릿수(0-9)로 이루어진 수열입니다. 앞자리 0이 "
-        "허용됩니다 (예: '012'는 유효한 3자리 비밀 숫자)\n"
-        "- \"스트라이크\"(S)는 올바른 숫자가 올바른 위치에 있음을 의미합니다\n"
-        "- \"볼\"(B)은 올바른 숫자가 잘못된 위치에 있음을 의미합니다\n"
-        "- 주어진 모든 힌트를 만족하는 유일한 숫자를 찾아야 합니다\n"
-        "\n"
-        "풀이 접근법:\n"
-        "1. 각 힌트를 분석하여 비밀 숫자에 포함된 숫자를 파악합니다\n"
-        "2. 스트라이크와 볼 개수를 이용하여 위치를 결정합니다\n"
-        "3. 논리적 추론으로 불가능한 조합을 제거합니다\n"
-        "4. 답을 제출하기 전에 모든 힌트에 대해 검증합니다\n"
-        "\n"
-        "중요한 출력 규칙:\n"
-        "- 마지막 줄은 반드시 한 번만 다음 형식으로 작성하세요: Answer: <숫자열>\n"
-        "- <숫자열> 길이는 문제의 비밀 숫자 자릿수와 같아야 합니다\n"
-        "  (힌트/문제 문구에서 자릿수 판단)\n"
-        "- 숫자만 출력하세요 (공백, 쉼표, 괄호, 추가 텍스트 금지)\n"
-        "- 마지막 Answer 줄 뒤에는 아무 내용도 쓰지 마세요."
-    )
+### Rules
+1. Infer the secret digit string: unique digits 0–9 per position, length fixed by the puzzle; leading zeros are allowed.
+2. Every hint’s strike (correct digit, correct place) and ball (correct digit, wrong place) counts must be satisfied by your answer.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
+
+### Output format
+Your final line must be:
+Answer: <digits>
+(Digits only; no spaces or other characters; nothing after the answer on the Answer: line.)
+"""
+
+    KOREAN_SYSTEM_PROMPT = """### 지시사항
+당신은 숫자 야구(Bulls and Cows) 퍼즐을 정확히 푸는 전문가입니다.
+
+### 규칙
+1. 비밀 숫자는 서로 다른 0–9 자리로 이루어지며 길이는 문제에서 정해집니다. 앞자리 0이 허용됩니다.
+2. 각 힌트의 스트라이크·볼 개수를 모두 만족하는 유일한 수를 찾으세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
+
+### 출력 형식
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: <숫자열>
+(숫자만; 공백·부가 텍스트 없이 Answer: 줄에 답만 적으세요.)
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""

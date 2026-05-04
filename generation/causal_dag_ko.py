@@ -67,6 +67,9 @@ class CausalPuzzle:
     target_event: str
     answer: int
     difficulty: str
+    query_type: str = 'occurrence_time'
+    compare_event: Optional[str] = None
+    shuffle_edges: bool = False
     
     def to_dict(self):
         """JSON 직렬화를 위한 딕셔너리 변환"""
@@ -88,7 +91,10 @@ class CausalPuzzle:
             'trigger_time': self.trigger_time,
             'target': self.target_event,
             'answer': self.answer,
-            'difficulty': self.difficulty
+            'difficulty': self.difficulty,
+            'query_type': self.query_type,
+            'compare_event': self.compare_event,
+            'shuffle_edges': self.shuffle_edges,
         }
 
 
@@ -162,28 +168,50 @@ class CausalPuzzleGenerator:
         if seed is not None:
             random.seed(seed)
         
-        # 난이도 설정
+        # gemini-3-flash-preview 실행 결과에 맞춰 보정된 난이도 설정.
+        # 주요 난이도 축은 관계 제시 순서 섞기, 대체 인과 규칙,
+        # 더 깊은 타겟, 단일 경로보다 넓은 전파를 요구하는 질의 유형이다.
         config = {
             'easy': {
-                'num_events': random.randint(18, 22),
-                'edge_density': 0.50,
-                'delay_range': (15, 80),
+                'num_events': random.randint(25, 31),
+                'edge_density': 0.62,
+                'delay_range': (10, 60),
                 'max_out_degree': 3,
-                'and_probability': 0.4,
+                'and_probability': 0.47,
+                'target_quantile': (0.56, 0.86),
+                'query_weights': {
+                    'occurrence_time': 0.30,
+                    'time_gap': 0.25,
+                    'count_by_target_time': 0.45,
+                },
+                'shuffle_edges': True,
             },
             'medium': {
-                'num_events': random.randint(45, 55),
-                'edge_density': 0.70,
-                'delay_range': (30, 150),
-                'max_out_degree': 5,
-                'and_probability': 0.92,
+                'num_events': random.randint(36, 42),
+                'edge_density': 0.80,
+                'delay_range': (20, 140),
+                'max_out_degree': 4,
+                'and_probability': 0.58,
+                'target_quantile': (0.62, 0.90),
+                'query_weights': {
+                    'occurrence_time': 0.10,
+                    'time_gap': 0.25,
+                    'count_by_target_time': 0.65,
+                },
+                'shuffle_edges': True,
             },
             'hard': {
-                'num_events': random.randint(80, 100),
-                'edge_density': 0.80,
-                'delay_range': (50, 250),
-                'max_out_degree': 7,
-                'and_probability': 0.99,
+                'num_events': random.randint(46, 58),
+                'edge_density': 0.95,
+                'delay_range': (30, 240),
+                'max_out_degree': 5,
+                'and_probability': 0.64,
+                'target_quantile': (0.64, 0.94),
+                'query_weights': {
+                    'time_gap': 0.20,
+                    'count_by_target_time': 0.80,
+                },
+                'shuffle_edges': True,
             }
         }[difficulty]
         
@@ -213,26 +241,18 @@ class CausalPuzzleGenerator:
                 # 도달 시간 계산
                 reach_times = self._calculate_reach_times(events, edges, trigger, trigger_time)
                 
-                # 타겟 선택 (도달 가능한 사건, 트리거 제외)
+                # 타겟/질의 선택 (도달 가능한 사건, 트리거 제외)
                 reachable = [e_id for e_id, time in reach_times.items() 
                            if time < float('inf') and e_id != trigger]
                 
                 if not reachable:
                     continue
                 
-                # 너무 가깝거나 너무 먼 사건 제외
-                target_candidates = sorted(reachable, 
-                                         key=lambda e: reach_times[e])
-                
-                # 중간 범위에서 선택
-                mid_start = len(target_candidates) // 3
-                mid_end = 2 * len(target_candidates) // 3
-                if mid_end > mid_start:
-                    target_event = random.choice(target_candidates[mid_start:mid_end])
-                else:
-                    target_event = random.choice(target_candidates)
-                
-                answer = reach_times[target_event]
+                query_type, target_event, answer, compare_event = self._select_query(
+                    reachable,
+                    reach_times,
+                    config
+                )
                 
                 return CausalPuzzle(
                     events=events,
@@ -241,7 +261,10 @@ class CausalPuzzleGenerator:
                     trigger_time=trigger_time,
                     target_event=target_event,
                     answer=answer,
-                    difficulty=difficulty
+                    difficulty=difficulty,
+                    query_type=query_type,
+                    compare_event=compare_event,
+                    shuffle_edges=config.get('shuffle_edges', False),
                 )
             
             except Exception as e:
@@ -249,6 +272,57 @@ class CausalPuzzleGenerator:
         
         # 모든 시도 실패 시 단순 선형 체인 생성
         return self._generate_simple_puzzle(difficulty)
+
+    def _weighted_choice(self, weights: Dict[str, float]) -> str:
+        """작은 가중치 딕셔너리에서 키 하나를 선택한다."""
+        total = sum(weights.values())
+        threshold = random.random() * total
+        cumulative = 0.0
+        for key, weight in weights.items():
+            cumulative += weight
+            if threshold <= cumulative:
+                return key
+        return next(reversed(weights))
+
+    def _select_query(
+        self,
+        reachable: List[str],
+        reach_times: Dict[str, int],
+        config: Dict,
+    ) -> Tuple[str, str, int, Optional[str]]:
+        """질의 유형을 선택하고 해당 답을 계산한다."""
+        target_candidates = sorted(reachable, key=lambda e: (reach_times[e], e))
+        q_start, q_end = config.get('target_quantile', (1 / 3, 2 / 3))
+        start_idx = int(len(target_candidates) * q_start)
+        end_idx = max(start_idx + 1, int(len(target_candidates) * q_end))
+        target_pool = target_candidates[start_idx:end_idx] or target_candidates
+        target_event = random.choice(target_pool)
+        query_type = self._weighted_choice(config.get('query_weights', {'occurrence_time': 1.0}))
+
+        if query_type == 'time_gap':
+            earlier = [
+                e for e in target_candidates
+                if e != target_event and reach_times[e] < reach_times[target_event]
+            ]
+            if earlier:
+                compare_event = random.choice(earlier)
+                answer = reach_times[target_event] - reach_times[compare_event]
+                return query_type, target_event, int(answer), compare_event
+            query_type = 'occurrence_time'
+
+        if query_type == 'count_by_target_time':
+            cutoff = reach_times[target_event]
+            answer = sum(
+                1 for time in reach_times.values()
+                if time < float('inf') and time <= cutoff
+            )
+            return query_type, target_event, int(answer), None
+
+        if query_type == 'latest_event_time':
+            target_event = max(target_candidates, key=lambda e: (reach_times[e], e))
+            return query_type, target_event, int(reach_times[target_event]), None
+
+        return 'occurrence_time', target_event, int(reach_times[target_event]), None
     
     def _generate_events(self, num_events: int) -> Dict[str, Event]:
         """사건 노드 생성"""
@@ -284,46 +358,46 @@ class CausalPuzzleGenerator:
         edges = []
         event_ids = sorted(events.keys())
         and_prob = config.get('and_probability', 0.0)
+        extra_edge_rate = config.get('edge_density', 0.0)
         
         # 각 타겟 노드에 대해 간선 생성
         for i, to_id in enumerate(event_ids):
             if i == 0:
                 continue  # 첫 노드는 트리거 후보
-            
-            # 전제 조건 수 결정
-            max_prereqs = min(config['max_out_degree'], i)
-            num_prereqs = random.randint(1, max(1, max_prereqs))
-            
-            # 전제 조건 사건 선택 (이전 노드들)
+
+            # DAG를 유지하기 위해 이전 노드들에서만 전제 사건 선택
             possible_from = event_ids[:i]
             if not possible_from:
                 continue
-            
-            from_events = random.sample(possible_from, min(num_prereqs, len(possible_from)))
-            
-            # 조건 타입 결정
-            condition = 'OR'
-            if len(from_events) > 1 and random.random() < and_prob:
-                condition = 'AND'
-            
-            delay = random.randint(*config['delay_range'])
-            
-            # 간선 생성
-            if len(from_events) == 1:
-                edges.append(CausalEdge(
-                    from_event=from_events[0],
-                    to_event=to_id,
-                    delay=delay,
-                    from_events=from_events,
-                    condition='OR'
+
+            base_extra = int(extra_edge_rate)
+            fractional_extra = 1 if random.random() < (extra_edge_rate - base_extra) else 0
+            rules_for_target = 1 + base_extra + fractional_extra
+            seen_prereq_sets: Set[Tuple[str, ...]] = set()
+
+            for _ in range(rules_for_target):
+                max_prereqs = min(config['max_out_degree'], len(possible_from))
+                num_prereqs = random.randint(1, max(1, max_prereqs))
+                from_events = tuple(sorted(
+                    random.sample(possible_from, min(num_prereqs, len(possible_from)))
                 ))
-            else:
+
+                # 같은 타겟에 대해 완전히 같은 전제 집합이 중복되지 않게 한다.
+                if from_events in seen_prereq_sets and len(seen_prereq_sets) < len(possible_from):
+                    continue
+                seen_prereq_sets.add(from_events)
+
+                condition = 'OR'
+                if len(from_events) > 1 and random.random() < and_prob:
+                    condition = 'AND'
+
+                delay = random.randint(*config['delay_range'])
                 edges.append(CausalEdge(
                     from_event=from_events[0],
                     to_event=to_id,
                     delay=delay,
-                    from_events=from_events,
-                    condition=condition
+                    from_events=list(from_events),
+                    condition=condition if len(from_events) > 1 else 'OR'
                 ))
         
         return edges
@@ -346,21 +420,13 @@ class CausalPuzzleGenerator:
         Returns:
             사건 ID -> 최초 발생 시간 매핑 딕셔너리
         """
-        # 전제 조건 추적 구조 구축
-        prereqs_for_event = {}
-        edges_for_event = {}
-        
-        for edge in edges:
-            from_events = edge.from_events if edge.from_events else [edge.from_event]
-            prereqs_for_event[edge.to_event] = from_events
-            edges_for_event[edge.to_event] = edge
-        
         # 각 사건의 최초 발생 시간 추적
         earliest_time = {e_id: float('inf') for e_id in events}
         earliest_time[trigger] = trigger_time
         
-        # 각 전제 조건이 사건에 도달하는 시간 추적
-        prereq_arrival_times = {e_id: {} for e_id in events}
+        # 같은 사건을 향하는 여러 대체 규칙이 있을 수 있으므로
+        # 규칙(edge)별로 전제 도달 시각을 따로 추적한다.
+        prereq_arrival_times = {idx: {} for idx in range(len(edges))}
         
         # 우선순위 큐: (시간, 사건 ID)
         pq = [(trigger_time, trigger)]
@@ -374,27 +440,28 @@ class CausalPuzzleGenerator:
             processed.add(current_event)
             
             # current_event에 의존하는 모든 사건 찾기
-            for edge in edges:
+            for edge_idx, edge in enumerate(edges):
                 from_events = edge.from_events if edge.from_events else [edge.from_event]
                 if current_event not in from_events:
                     continue
                 
                 to_event = edge.to_event
                 arrival_time = current_time + edge.delay
+                arrivals = prereq_arrival_times[edge_idx]
                 
                 # 이 전제 조건의 도달 시간 기록
-                if current_event not in prereq_arrival_times[to_event]:
-                    prereq_arrival_times[to_event][current_event] = arrival_time
+                if current_event not in arrivals:
+                    arrivals[current_event] = arrival_time
                 else:
                     # 최초 도달 시간 유지
-                    prereq_arrival_times[to_event][current_event] = min(
-                        prereq_arrival_times[to_event][current_event],
+                    arrivals[current_event] = min(
+                        arrivals[current_event],
                         arrival_time
                     )
                 
                 # 모든 전제 조건이 도달했는지 확인
                 all_prereqs_arrived = all(
-                    prereq in prereq_arrival_times[to_event]
+                    prereq in arrivals
                     for prereq in from_events
                 )
                 
@@ -403,13 +470,13 @@ class CausalPuzzleGenerator:
                     if edge.condition == 'AND':
                         # 모든 전제 조건 대기
                         trigger_time_for_event = max(
-                            prereq_arrival_times[to_event][prereq]
+                            arrivals[prereq]
                             for prereq in from_events
                         )
                     else:  # OR
                         # 첫 번째 전제 조건에서 트리거
                         trigger_time_for_event = min(
-                            prereq_arrival_times[to_event][prereq]
+                            arrivals[prereq]
                             for prereq in from_events
                         )
                     
@@ -469,12 +536,8 @@ class CausalPuzzleGenerator:
         return reach_times[puzzle.target_event] < float('inf')
 
 
-def create_question(puzzle: CausalPuzzle, shuffle_edges: bool = False) -> str:
-    """퍼즐에 대한 한국어 질문 텍스트 생성.
-
-    shuffle_edges=True이면 인과 엣지를 to_event 정렬이 아니라 무작위 순서로 제시해
-    난이도를 올린다(영어 캘리브레이션과 동일 그래프 파라미터를 쓸 때 유용).
-    """
+def create_question(puzzle: CausalPuzzle, shuffle_edges: Optional[bool] = None) -> str:
+    """퍼즐에 대한 한국어 질문 텍스트 생성."""
     
     # 사건 형식화
     event_lines = []
@@ -487,6 +550,8 @@ def create_question(puzzle: CausalPuzzle, shuffle_edges: bool = False) -> str:
     
     # 인과 관계 형식화
     causal_lines = []
+    if shuffle_edges is None:
+        shuffle_edges = puzzle.shuffle_edges
     if shuffle_edges:
         sorted_edges = list(puzzle.edges)
         random.shuffle(sorted_edges)
@@ -520,6 +585,36 @@ def create_question(puzzle: CausalPuzzle, shuffle_edges: bool = False) -> str:
     
     trigger_name = puzzle.events[puzzle.trigger].name
     target_name = puzzle.events[puzzle.target_event].name
+    compare_line = ""
+    answer_instruction = "답변은 정수 하나로만 제공하세요."
+    if puzzle.query_type == 'time_gap' and puzzle.compare_event:
+        compare_name = puzzle.events[puzzle.compare_event].name
+        question_line = (
+            f"사건 {puzzle.compare_event} ({compare_name})이(가) 처음 발생한 뒤, "
+            f"사건 {puzzle.target_event} ({target_name})이(가) 처음 발생하기까지 "
+            "몇 분이 걸립니까?"
+        )
+        compare_line = (
+            f"- 비교 사건: {puzzle.compare_event} ({compare_name}); 두 사건의 발생 시각을 모두 계산한 뒤 "
+            "대상 사건 시각에서 비교 사건 시각을 빼세요.\n"
+        )
+    elif puzzle.query_type == 'count_by_target_time':
+        question_line = (
+            f"사건 {puzzle.target_event} ({target_name})이(가) 처음 발생하는 시점까지, "
+            "목록에 있는 서로 다른 사건은 총 몇 개 발생했습니까? 초기 사건과 대상 사건도 "
+            "개수에 포함하세요."
+        )
+    elif puzzle.query_type == 'latest_event_time':
+        question_line = (
+            "초기 조건이 그래프 전체로 전파된 뒤, 도달 가능한 목록 내 사건 중 "
+            "가장 마지막으로 처음 발생하는 사건은 몇 분에 발생합니까?"
+        )
+        answer_instruction = "답변은 분 단위 정수 하나로만 제공하세요."
+    else:
+        question_line = (
+            f"사건 {puzzle.target_event} ({target_name})은(는) 몇 분에 처음 발생합니까?"
+        )
+        answer_instruction = "답변은 분 단위 정수 하나로만 제공하세요."
     
     question = f"""인과 관계 사건 시스템과 시간에 따른 전파를 분석하고 있습니다.
 
@@ -537,12 +632,13 @@ def create_question(puzzle: CausalPuzzle, shuffle_edges: bool = False) -> str:
 
 초기 조건:
 - 사건 {puzzle.trigger} ({trigger_name})이(가) {puzzle.trigger_time}분에 발생합니다
+{compare_line}
 
 질문:
-사건 {puzzle.target_event} ({target_name})은(는) 몇 분에 처음 발생합니까?
+{question_line}
 
-답변은 분 단위 정수로 제공하세요.
-예를 들어, 사건이 시작 후 45분에 발생하면 답변: 45
+{answer_instruction}
+예를 들어, 요청한 값이 45이면 답변: 45
 """
     
     return question
@@ -560,7 +656,7 @@ def generate_dataset(puzzles_per_difficulty: int = 3, verbose: bool = True) -> L
         평가 준비된 퍼즐 딕셔너리 리스트
     """
     generator = CausalPuzzleGenerator()
-    difficulties = ['Easy', 'Medium', 'Hard']
+    difficulties = ['easy', 'medium', 'hard']
     dataset = []
     
     for difficulty in difficulties:
@@ -603,7 +699,7 @@ def _reach_time_trace_ko(puzzle: CausalPuzzle) -> tuple:
 
     earliest = {eid: float('inf') for eid in events}
     earliest[trigger] = trigger_time
-    prereq_arrival: Dict[str, Dict[str, int]] = {eid: {} for eid in events}
+    prereq_arrival: Dict[int, Dict[str, int]] = {idx: {} for idx in range(len(edges))}
     resolver: Dict[str, CausalEdge] = {}
 
     pq = [(trigger_time, trigger)]
@@ -613,12 +709,12 @@ def _reach_time_trace_ko(puzzle: CausalPuzzle) -> tuple:
         if ce in processed:
             continue
         processed.add(ce)
-        for edge in edges:
+        for edge_idx, edge in enumerate(edges):
             fes = edge.from_events if edge.from_events else [edge.from_event]
             if ce not in fes:
                 continue
             at = ct + edge.delay
-            pa = prereq_arrival[edge.to_event]
+            pa = prereq_arrival[edge_idx]
             if ce not in pa or at < pa[ce]:
                 pa[ce] = at
             if all(p in pa for p in fes):
@@ -692,18 +788,46 @@ def _reach_time_trace_ko(puzzle: CausalPuzzle) -> tuple:
 
 
 def _build_causal_dag_solution_ko(puzzle: CausalPuzzle) -> str:
-    """SFT teacher trace: time propagation + target minute."""
+    """SFT teacher trace: 시간 전파 규칙과 요청된 정수 답."""
     n_ev = len(puzzle.events)
     n_ed = len(puzzle.edges)
     trace_lines, smry = _reach_time_trace_ko(puzzle)
+    reach_times = CausalPuzzleGenerator()._calculate_reach_times(
+        puzzle.events,
+        puzzle.edges,
+        puzzle.trigger,
+        puzzle.trigger_time,
+    )
+    target_time = reach_times[puzzle.target_event]
+    if puzzle.query_type == 'time_gap' and puzzle.compare_event:
+        compare_time = reach_times[puzzle.compare_event]
+        query_note = (
+            f"  - 질의: {puzzle.compare_event}(t={compare_time})부터 "
+            f"{puzzle.target_event}(t={target_time})까지의 시간 차"
+        )
+        answer_label = "최종 답(두 사건 사이 분 차이)"
+    elif puzzle.query_type == 'count_by_target_time':
+        query_note = (
+            f"  - 질의: {puzzle.target_event}의 시각 t={target_time} 이하에 "
+            "발생한 사건 수"
+        )
+        answer_label = "최종 답(사건 개수)"
+    elif puzzle.query_type == 'latest_event_time':
+        query_note = "  - 질의: 도달 가능한 목록 내 사건 중 가장 늦은 최초 발생 시각"
+        answer_label = "최종 답(분)"
+    else:
+        query_note = f"  - 질의: {puzzle.target_event}의 최초 발생 시각"
+        answer_label = "최종 답(분)"
     head = [
         SFT_SOLUTION_RUBRIC_KO,
         "[STEP 0] 문제 메타",
         f"  - 난이도: {puzzle.difficulty}",
         f"  - 트리거 사건: {puzzle.trigger} (t = {puzzle.trigger_time}분)",
         f"  - 질문 대상 사건: {puzzle.target_event}",
+        f"  - 질의 유형: {puzzle.query_type}",
+        query_note,
         f"  - 그래프: 사건 {n_ev}개, 엣지 {n_ed}개",
-        "  - 최종 분(정수)은 [STEP 3]에만 ‘검산용’으로 둔다. "
+        "  - 최종 요청 정수는 [STEP 3]에만 ‘검산용’으로 둔다. "
         "먼저 [STEP 2]의 SEG 로그를 따라갈 것.",
         "[STEP 1] 주어진 조건 (시간 전파·그래프 규칙, 문제 본문과 동일)",
         "  - 엣지마다 지연이 있으며, 전제 사건이(들이) 발생한 뒤 결과로 전파.",
@@ -720,7 +844,7 @@ def _build_causal_dag_solution_ko(puzzle: CausalPuzzle) -> str:
     ]
     tail = [
         "[STEP 3] 답·검산",
-        f"  - 최종 답(분): {puzzle.answer}",
+        f"  - {answer_label}: {puzzle.answer}",
         "  - 우선순위 큐 전파를 다시 돌려 같은 정수가 나오는지, 각 AND 마디에서 "
         "max(prereqs)+delay, 각 OR 마디에서 min(prereqs)+delay 가 맞는지 확인.",
     ]

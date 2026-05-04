@@ -27,30 +27,30 @@ class SATPuzzleEvaluator(BaseEvaluator):
     """
     
     SYSTEM_PROMPT = """### Instructions
-You are an expert at solving logic puzzles.
+You are an expert at propositional logic and SAT-style team puzzles.
 
 ### Rules
-Carefully analyze all constraints and provide accurate answers.
+1. Satisfy every clue in the user message and assign each named variable true or false consistently.
+2. Put one-line JSON on the final line with lowercase boolean literals true/false; do not wrap it in markdown code fences.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-Your final line MUST be exactly one-line JSON:
+Your final line must be:
 Answer: {"K team": false, "L team": true}
-
-Use lowercase boolean literals (`true` / `false`) in the final JSON line.
-Do not use markdown code blocks in the final answer."""
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 논리 퍼즐 전문가입니다.
+당신은 명제 논리·SAT형 팀 추론 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-주어진 모든 제약을 꼼꼼히 분석하고 변수별 참/거짓을 정확한 답(JSON)으로 제시하세요.
+1. 사용자 메시지의 모든 제약을 만족하도록 각 변수에 참/거짓을 일관되게 부여하세요.
+2. 마지막 줄은 한 줄 JSON이며 불리언은 소문자 true/false만 사용하고, 마크다운 코드블록으로 감싸지 마세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-마지막 줄은 반드시 한 줄 JSON으로 작성하세요:
+마지막 줄은 반드시 아래 형식으로 작성하세요:
 Answer: {"K팀": false, "L팀": true}
-
-최종 JSON의 불리언은 소문자(`true` / `false`)를 사용하세요.
-최종 답에 markdown 코드블록은 사용하지 마세요."""
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """task_name에 sat_puzzles_ko_easy 등 포함 시 한국어; question에서도 추론."""

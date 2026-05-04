@@ -29,59 +29,32 @@ class InequalityEvaluator(BaseEvaluator):
     """
 
     SYSTEM_PROMPT = """### Instructions
-You are an expert puzzle solver specializing in logical constraint puzzles.
-You will be given an inequality puzzle where you must fill in the blanks with
-numbers from 1 to N (where N is the total number of positions in the puzzle).
+You are an expert at inequality-grid (Futoshiki-style) constraint puzzles.
 
 ### Rules
-1. Each number from 1 to N must be used exactly one time (it is a permutation of 1..N).
-2. Adjacent positions are joined by an inequality symbol that must be satisfied:
-   - `<` means the left number is strictly smaller than the right number.
-   - `>` means the left number is strictly larger than the right number.
-   - `?` means the inequality is hidden/unknown (it may be either `<` or `>`);
-     you must still produce a valid assignment consistent with some choice.
-3. Some positions may be pre-filled with a number (a hint). These numbers are
-   fixed and must appear at that position in your answer.
-4. A blank position is shown as an underscore (`_`) in the compact puzzle grid.
-5. The compact grid alternates `value symbol value symbol value ...`, for
-   example: `_ < 2 > _ < _`.
+1. Fill blanks with a permutation of 1 through N; each of `<`, `>`, and hidden `?` between neighbors must be satisfiable (for `?`, some choice of `<` or `>`).
+2. Keep given hints fixed; `_` marks empty cells in the alternating value–symbol row (e.g. `_ < 2 > _ < _`).
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
-### Output format (CRITICAL)
-Solve the puzzle step by step, then end your response with exactly one line:
-Answer: <numbers from left to right>
-
-- For puzzles of size <= 9, concatenate the digits (e.g., `Answer: 53241`).
-- For puzzles of size > 9, separate numbers with single spaces
-  (e.g., `Answer: 5 3 12 4 10 1`).
-
-Do NOT omit the `Answer:` line. This line is how your solution is graded."""
+### Output format
+Your final line must be:
+Answer: <left to right>
+(If puzzle size <= 9, use concatenated digits only, e.g. Answer: 53241; if size > 9, separate numbers with single spaces, e.g. Answer: 5 3 12 4 10 1.)
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 부등식 제약 논리 퍼즐 전문가입니다.
-부등호 퍼즐이 주어지며, 1부터 N까지의 숫자로 빈칸을 모두 채워야 합니다
-(N은 퍼즐의 전체 위치 수입니다).
+당신은 부등호 제약 그리드 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-1. 1부터 N까지의 각 숫자는 정확히 한 번씩만 사용되어야 합니다 (1..N의 순열).
-2. 인접한 위치 사이의 부등호를 반드시 만족해야 합니다:
-   - `<`: 왼쪽 숫자가 오른쪽 숫자보다 작음
-   - `>`: 왼쪽 숫자가 오른쪽 숫자보다 큼
-   - `?`: 부등호가 숨겨져 있음 (`<` 또는 `>` 중 어느 쪽이든 가능).
-     이 경우에도 어떤 선택과 일관된 유효한 배치를 제시해야 합니다.
-3. 일부 위치에는 숫자가 힌트로 미리 주어질 수 있습니다. 힌트 위치의 숫자는
-   고정이며 답안에서도 그 위치에 그대로 나타나야 합니다.
-4. 빈 위치는 퍼즐 그리드에서 밑줄(`_`)로 표시됩니다.
-5. 퍼즐 그리드는 `값 기호 값 기호 값 ...` 순서로 번갈아 나타납니다.
-   예: `_ < 2 > _ < _`.
+1. 1부터 N까지 순열로 빈칸을 채우고, 인접 `<`·`>`·`?`(숨은 부등호)를 모두 만족하는 배치를 제시하세요.
+2. 주어진 힌트 숫자는 고정이며, `_`는 빈칸(값·기호 교차 나열, 예: `_ < 2 > _ < _`)입니다.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
-### 출력 형식 (매우 중요)
-단계별로 풀이한 뒤, 응답의 마지막 줄은 반드시 다음 형식이어야 합니다:
-Answer: <왼쪽에서 오른쪽 순서의 숫자들>
-
-- size <= 9: 숫자를 공백 없이 이어붙임 (예: `Answer: 53241`).
-- size > 9: 숫자를 공백 한 칸으로 구분 (예: `Answer: 5 3 12 4 10 1`).
-
-`Answer:` 줄을 절대 생략하지 마세요. 이 줄이 채점의 기준이 됩니다."""
+### 출력 형식
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: <왼쪽에서 오른쪽>
+(크기 9 이하는 숫자만 이어 쓰기, 예: Answer: 53241; 크기 9 초과는 공백 한 칸으로 구분, 예: Answer: 5 3 12 4 10 1.)
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""

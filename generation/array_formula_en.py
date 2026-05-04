@@ -8,10 +8,10 @@ Problem Types:
 3. array_computation: SUMPRODUCT style array computation
 4. multi_condition: SUMIFS, MAXIFS style multi-condition problems
 
-Difficulty Levels (v5 - Calibrated to gemini-3-flash-preview):
-- easy: easy templates, 20-28 products, 25-40 orders → target ~75%
-- medium: medium templates, 35-45 products, 50-70 orders → target ~50%
-- hard: hard templates, 48-58 products, 75-110 orders → target ≤25%
+Difficulty Levels (v12 - Re-calibrated to gemini-3-flash-preview):
+- easy: 45% easy + 55% medium template mix → target ~75%
+- medium: 50% medium + 50% hard template mix with larger medium tables → target ~50%
+- hard: hard templates with distractor columns, 80-85 products, 280-360 orders → target ~25%
 """
 
 import json
@@ -53,15 +53,15 @@ class ArrayFormulaConfig:
 
     def __post_init__(self):
         if self.difficulty == "easy":
-            self.min_rows, self.max_rows = 20, 28
-            self.num_categories = 5
-            self.num_regions = 5
+            self.min_rows, self.max_rows = 24, 32
+            self.num_categories = 6
+            self.num_regions = 6
         elif self.difficulty == "medium":
-            self.min_rows, self.max_rows = 35, 45
-            self.num_categories = 7
-            self.num_regions = 7
+            self.min_rows, self.max_rows = 55, 65
+            self.num_categories = 8
+            self.num_regions = 8
         elif self.difficulty == "hard":
-            self.min_rows, self.max_rows = 48, 58
+            self.min_rows, self.max_rows = 80, 85
             self.num_categories = 8
             self.num_regions = 8
 
@@ -100,7 +100,8 @@ CUSTOMER_NAMES = [
 def generate_product_table(
     num_rows: int,
     num_categories: int,
-    seed: int
+    seed: int,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """Generate product table"""
     rng = random.Random(seed)
@@ -119,6 +120,16 @@ def generate_product_table(
             "stock": rng.randint(10, 200),
             "discount": rng.choice([0, 5, 10, 15, 20]),
         }
+        if difficulty in ("medium", "hard"):
+            row.update({
+                "supplier": f"S-{rng.randint(1, 12):02d}",
+                "warehouse": rng.choice(["North", "South", "East", "West"]),
+            })
+        if difficulty == "hard":
+            row.update({
+                "tax_rate": rng.choice([0, 3, 5, 8, 10]),
+                "rating": rng.randint(1, 5),
+            })
         table.append(row)
 
     return table
@@ -129,7 +140,8 @@ def generate_sales_table(
     num_orders: int,
     num_regions: int,
     seed: int,
-    customer_table: Optional[List[Dict]] = None
+    customer_table: Optional[List[Dict]] = None,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """Generate sales table, optionally with customer_id"""
     rng = random.Random(seed + 1000)
@@ -148,6 +160,16 @@ def generate_sales_table(
         }
         if customer_table is not None:
             row["customer_id"] = rng.choice(customer_table)["customer_id"]
+        if difficulty in ("medium", "hard"):
+            row.update({
+                "channel": rng.choice(["Online", "Store", "Partner", "Phone"]),
+                "priority": rng.choice(["Low", "Normal", "High"]),
+            })
+        if difficulty == "hard":
+            row.update({
+                "shipping_fee": rng.randint(0, 20) * 100,
+                "promo_rate": rng.choice([0, 5, 10, 15]),
+            })
         table.append(row)
 
     return table
@@ -156,7 +178,8 @@ def generate_sales_table(
 def generate_customer_table(
     num_customers: int,
     num_regions: int,
-    seed: int
+    seed: int,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """Generate customer table"""
     rng = random.Random(seed + 3000)
@@ -173,6 +196,13 @@ def generate_customer_table(
             "join_year": rng.randint(2018, 2024),
             "region": rng.choice(regions),
         }
+        if difficulty in ("medium", "hard"):
+            row["segment"] = rng.choice(["Retail", "Corporate", "Education", "Public"])
+        if difficulty == "hard":
+            row.update({
+                "age_group": rng.choice(["20s", "30s", "40s", "50s"]),
+                "loyalty_points": rng.randint(0, 5000),
+            })
         table.append(row)
 
     return table
@@ -260,19 +290,57 @@ def _weighted_choice(rng, templates):
     return templates[-1][0], templates[-1][1], templates[-1][3]
 
 
+def _calibrate_template_weights(difficulty: str, templates):
+    """Shift sampling toward multi-step numeric templates as difficulty increases."""
+    if difficulty == "easy":
+        weight_multipliers = {1: 0.75, 2: 1.80}
+        text_multiplier = 0.90
+        numeric_multiplier = 1.05
+    elif difficulty == "medium":
+        weight_multipliers = {1: 0.40, 2: 3.60}
+        text_multiplier = 0.45
+        numeric_multiplier = 1.25
+    elif difficulty == "hard":
+        weight_multipliers = {1: 0.20, 2: 5.00}
+        text_multiplier = 0.30
+        numeric_multiplier = 1.40
+    else:
+        weight_multipliers = {}
+        text_multiplier = 1.0
+        numeric_multiplier = 1.0
+
+    return [
+        (
+            question,
+            answer,
+            weight
+            * weight_multipliers.get(weight, 1.0)
+            * (numeric_multiplier if isinstance(answer, (int, float)) else text_multiplier),
+            solution,
+        )
+        for question, answer, weight, solution in templates
+    ]
+
+
 def _make_tables_dict(product_table, sales_table, customer_table):
     """Build standard 3-table dict for return value."""
+    def columns(base_columns, table):
+        extra_columns = []
+        if table:
+            extra_columns = [col for col in table[0].keys() if col not in base_columns]
+        return base_columns + extra_columns
+
     return {
         "Products": {
-            "columns": ["id", "product", "category", "price", "stock", "discount"],
+            "columns": columns(["id", "product", "category", "price", "stock", "discount"], product_table),
             "data": product_table
         },
         "Orders": {
-            "columns": ["order_id", "product", "region", "quantity", "quarter", "customer_id"],
+            "columns": columns(["order_id", "product", "region", "quantity", "quarter", "customer_id"], sales_table),
             "data": sales_table
         },
         "Customers": {
-            "columns": ["customer_id", "name", "membership", "join_year", "region"],
+            "columns": columns(["customer_id", "name", "membership", "join_year", "region"], customer_table),
             "data": customer_table
         }
     }
@@ -282,24 +350,24 @@ def _make_tables_dict(product_table, sales_table, customer_table):
 # Data generation shared across generators
 # ============================================================
 
-_ORDER_COUNTS = {"easy": (25, 40), "medium": (50, 70), "hard": (75, 110)}
-_CUSTOMER_COUNTS = {"easy": (8, 12), "medium": (12, 16), "hard": (15, 19)}
+_ORDER_COUNTS = {"easy": (35, 50), "medium": (120, 170), "hard": (280, 360)}
+_CUSTOMER_COUNTS = {"easy": (10, 14), "medium": (18, 20), "hard": (20, 20)}
 
 
 def _generate_all_tables(config, rng):
     """Generate all 3 tables + helper maps."""
     num_rows = rng.randint(config.min_rows, config.max_rows)
     seed = rng.randint(1, 10000)
-    product_table = generate_product_table(num_rows, config.num_categories, seed)
+    product_table = generate_product_table(num_rows, config.num_categories, seed, config.difficulty)
 
     min_o, max_o = _ORDER_COUNTS[config.difficulty]
     min_c, max_c = _CUSTOMER_COUNTS[config.difficulty]
     num_orders = rng.randint(min_o, max_o)
     num_customers = rng.randint(min_c, max_c)
 
-    customer_table = generate_customer_table(num_customers, config.num_regions, seed)
+    customer_table = generate_customer_table(num_customers, config.num_regions, seed, config.difficulty)
     sales_table = generate_sales_table(
-        product_table, num_orders, config.num_regions, seed, customer_table
+        product_table, num_orders, config.num_regions, seed, customer_table, config.difficulty
     )
 
     product_map = {p["product"]: p for p in product_table}
@@ -653,7 +721,9 @@ def generate_lookup_problem(
              f"Step 5: Top category = '{t5_top_cat}'\nFinal answer: {t5_top_cat}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.LOOKUP_QUERY.value,
@@ -968,7 +1038,9 @@ def generate_conditional_aggregation_problem(
              f"Step 4: CV = {cv}\nFinal answer: {cv}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.CONDITIONAL_AGGREGATION.value,
@@ -1296,7 +1368,9 @@ def generate_array_computation_problem(
              f"Step 3: Difference = {price_gap}\nFinal answer: {price_gap}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.ARRAY_COMPUTATION.value,
@@ -1626,7 +1700,9 @@ def generate_multi_condition_problem(
              f"Step 3: Ratio = {gs_bn_ratio}\nFinal answer: {gs_bn_ratio}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.MULTI_CONDITION.value,
@@ -1651,6 +1727,16 @@ PROBLEM_GENERATORS = {
 }
 
 
+def _generation_difficulty_for_target(label_difficulty: str, rng: random.Random) -> str:
+    """Map dataset labels to calibrated generation difficulty mixtures."""
+    roll = rng.random()
+    if label_difficulty == "easy":
+        return "medium" if roll < 0.55 else "easy"
+    if label_difficulty == "medium":
+        return "hard" if roll < 0.50 else "medium"
+    return label_difficulty
+
+
 def generate_puzzle(
     difficulty: str = "medium",
     problem_type: Optional[str] = None,
@@ -1671,17 +1757,21 @@ def generate_puzzle(
         seed = random.randint(1, 1000000)
 
     rng = random.Random(seed)
-    config = ArrayFormulaConfig(difficulty=difficulty, seed=seed)
+    requested_difficulty = difficulty
+    generation_difficulty = _generation_difficulty_for_target(requested_difficulty, rng)
+    config = ArrayFormulaConfig(difficulty=generation_difficulty, seed=seed)
 
     if problem_type is None:
         problem_type = rng.choice(list(PROBLEM_GENERATORS.keys()))
 
     generator = PROBLEM_GENERATORS[problem_type]
     puzzle = generator(config, rng)
+    puzzle["generation_difficulty"] = generation_difficulty
+    puzzle["difficulty"] = requested_difficulty
 
     # Generate ID
     puzzle_hash = hashlib.md5(json.dumps(puzzle, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:8]
-    puzzle["id"] = f"af_{difficulty}_{problem_type}_{puzzle_hash}"
+    puzzle["id"] = f"af_{requested_difficulty}_{problem_type}_{puzzle_hash}"
     puzzle["seed"] = seed
 
     return puzzle
