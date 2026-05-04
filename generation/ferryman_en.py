@@ -45,9 +45,9 @@ def _fmt_minutes_from_hours(hours):
 
 
 REST_COUNT_RANGES = {
-    "easy":   (8, 11),  # interval(7-9)+trigger(40-60) achievable / gap=2 to med min(14)
-    "medium": (14, 17), # gap=2 from easy max(11), gap=5 to hard min(22) / interval(10-13)+dist(150-200) achievable
-    "hard":   (26, 33), # gap=9 from med max(17) / slight hard-only uplift
+    "easy":   (10, 11), # target 75%; current 82% needs one more rest tier
+    "medium": (14, 16), # target 50%; current 49% is nearly calibrated
+    "hard":   (30, 30), # target 25%; keep stable generation, tune burden via parameters
 }
 
 
@@ -58,75 +58,75 @@ def generate_puzzle_question(difficulty="easy", rest_count_target=None):
         try:
             if difficulty == "easy":
                 params = {
-                    "distance_range": (60, 100),             # w=40, gap=50 to med(150)
+                    "distance_range": (75, 110),             # slightly harder easy, still below medium
                     "zone_a_range": (15, 25),
                     "zone_a_limit_range": (25, 38),
-                    "zone_b_limit_range": (23, 26),          # w=3, gap=1 to med max(21)
-                    "rest_trigger_minutes_range": (40, 60),   # gap=15 to med min(75) — lowered for more frequent rests
-                    "rest_duration_minutes_range": (25, 50),
+                    "zone_b_limit_range": (23, 26),
+                    "rest_trigger_minutes_range": (40, 56),
+                    "rest_duration_minutes_range": (27, 50),
                     "rest_stop_interval_km_range": (7, 9),    # gap=1 to med min(10) — shorter intervals allow up to 11 rests
                     "heavy_threshold_range": (1500, 2500),   # gap=500 to med min(1000)
                     "zone_a_reduction_range": (10, 16),
-                    "zone_b_reduction_range": (10, 18),      # w=8, gap=2 to med min(21)
+                    "zone_b_reduction_range": (10, 18),
                     "uniform_reduction": False,
                     "base_speed_bonus_range": (8, 18),
-                    "current_speed_range": (2, 3),           # w=1, gap=1 to med min(5)
+                    "current_speed_range": (2, 3),
                     "has_delivery": True,
-                    "rest_increment_range": (5, 8),          # w=3, gap=6 to med min(14)
+                    "rest_increment_range": (7, 9),
                     "congestion_start_offset_range": (2, 4),
                     "congestion_duration_range": (1, 2),     # w=1, gap=0 to med min(3)
-                    "congestion_reduction_range": (10, 18),  # w=8, gap=2 to med min(21)
+                    "congestion_reduction_range": (10, 18),
                     "congestion_affected_zone": "all",
                     "max_segments": 45,
-                    "rest_count_range": (8, 11),             # w=3, gap=2 to med min(14) — interval(7-9)+trigger(40-60) allows up to 11
+                    "rest_count_range": (10, 11),
                 }
             elif difficulty == "medium":
                 params = {
-                    "distance_range": (150, 200),            # w=50, gap=50 from easy(100), gap=40 to hard(240)
+                    "distance_range": (155, 200),            # tiny ease toward exact 50% while staying above easy
                     "zone_a_range": (18, 35),
-                    "zone_a_limit_range": (20, 32),
-                    "zone_b_limit_range": (18, 21),          # w=3, gap=1 from easy(23), gap=1 to hard max(16)
-                    "rest_trigger_minutes_range": (75, 93),   # gap=1 to hard min(95)
-                    "rest_duration_minutes_range": (35, 65),
-                    "rest_stop_interval_km_range": (10, 13),  # gap=1 from easy max(9) — physical limit resolved
-                    "heavy_threshold_range": (600, 1000),    # gap=500 from easy, gap=150 to hard max(450)
-                    "zone_a_reduction_range": (15, 25),
-                    "zone_b_reduction_range": (21, 29),      # w=8, gap=2 from easy(18), gap=2 to hard min(32)
+                    "zone_a_limit_range": (21, 33),
+                    "zone_b_limit_range": (19, 22),
+                    "rest_trigger_minutes_range": (84, 100),
+                    "rest_duration_minutes_range": (30, 53),
+                    "rest_stop_interval_km_range": (11, 13),  # supports 14-16 rests with fewer stop decisions
+                    "heavy_threshold_range": (650, 1050),
+                    "zone_a_reduction_range": (13, 23),
+                    "zone_b_reduction_range": (19, 27),
                     "uniform_reduction": False,
-                    "base_speed_bonus_range": (4, 11),
+                    "base_speed_bonus_range": (6, 12),
                     "current_speed_range": (5, 6),           # w=1, gap=1 from easy(3), gap=0 to hard min(7)
                     "has_delivery": True,
-                    "rest_increment_range": (14, 17),        # w=3, gap=6 from easy max(8), gap=3 to hard min(20)
+                    "rest_increment_range": (11, 15),
                     "congestion_start_offset_range": (1, 2),
-                    "congestion_duration_range": (3, 4),     # w=1, gap=0 from easy(2), gap=0 to hard min(5)
-                    "congestion_reduction_range": (21, 29),  # w=8, gap=2 from easy(18), gap=2 to hard min(32)
+                    "congestion_duration_range": (2, 4),
+                    "congestion_reduction_range": (18, 26),
                     "congestion_affected_zone": random.choice(["all", "B"]),
-                    "max_segments": 80,
-                    "rest_count_range": (14, 17),            # w=3, gap=2 from easy max(11), gap=5 to hard min(22)
+                    "max_segments": 100,
+                    "rest_count_range": (14, 16),
                 }
             else:  # hard
                 params = {
-                    "distance_range": (270, 330),            # w=60, gap=70 from med(200) — longer multi-day journey
+                    "distance_range": (380, 460),            # slightly harder, longer multi-day journey
                     "zone_a_range": (20, 45),
-                    "zone_a_limit_range": (17, 29),
-                    "zone_b_limit_range": (13, 16),          # w=3, gap=1 from med min(18)
-                    "rest_trigger_minutes_range": (95, 120),  # gap=1 from med max(93) — prevent physical contradiction
-                    "rest_duration_minutes_range": (45, 85),
-                    "rest_stop_interval_km_range": (8, 11),   # gap=2 from med max(13) — shortened for worst-case speed
-                    "heavy_threshold_range": (250, 450),     # gap=150 from med min(600)
-                    "zone_a_reduction_range": (15, 25),
-                    "zone_b_reduction_range": (32, 40),      # w=8, gap=2 from med max(29)
+                    "zone_a_limit_range": (14, 25),
+                    "zone_b_limit_range": (10, 14),
+                    "rest_trigger_minutes_range": (84, 104),
+                    "rest_duration_minutes_range": (68, 112),
+                    "rest_stop_interval_km_range": (8, 9),
+                    "heavy_threshold_range": (180, 350),
+                    "zone_a_reduction_range": (24, 36),
+                    "zone_b_reduction_range": (42, 56),
                     "uniform_reduction": False,
-                    "base_speed_bonus_range": (3, 9),
-                    "current_speed_range": (7, 8),           # w=1, gap=0 from med max(6)
+                    "base_speed_bonus_range": (2, 7),
+                    "current_speed_range": (7, 9),
                     "has_delivery": True,
-                    "rest_increment_range": (27, 38),        # w=11, gap=10 from med max(17)
+                    "rest_increment_range": (46, 62),
                     "congestion_start_offset_range": (1, 2),
-                    "congestion_duration_range": (5, 6),     # w=1, gap=0 from med max(4)
-                    "congestion_reduction_range": (32, 40),  # w=8, gap=2 from med max(29)
+                    "congestion_duration_range": (6, 8),
+                    "congestion_reduction_range": (48, 62),
                     "congestion_affected_zone": "B",
-                    "max_segments": 180,
-                    "rest_count_range": (26, 33),            # w=7, gap=9 from med max(17) / slight hard-only uplift
+                    "max_segments": 240,
+                    "rest_count_range": (30, 30),
                 }
 
             if rest_count_target is not None:

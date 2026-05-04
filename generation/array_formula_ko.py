@@ -8,10 +8,10 @@ Problem Types:
 3. array_computation: SUMPRODUCT 스타일 배열 연산
 4. multi_condition: SUMIFS, MAXIFS 스타일 다중 조건 문제
 
-Difficulty Levels (v5 - Calibrated to gemini-3-flash-preview):
-- easy: easy templates, 20-28 products, 25-40 orders → target ~75%
-- medium: medium templates, 35-45 products, 50-70 orders → target ~50%
-- hard: hard templates, 48-58 products, 75-110 orders → target ≤25%
+Difficulty Levels (v12 - Re-calibrated to gemini-3-flash-preview):
+- easy: 45% easy + 55% medium template mix → target ~75%
+- medium: 50% medium + 50% hard template mix with larger medium tables → target ~50%
+- hard: hard templates with distractor columns, 80-85 products, 280-360 orders → target ~25%
 """
 
 import json
@@ -53,15 +53,15 @@ class ArrayFormulaConfig:
 
     def __post_init__(self):
         if self.difficulty == "easy":
-            self.min_rows, self.max_rows = 20, 28
-            self.num_categories = 5
-            self.num_regions = 5
+            self.min_rows, self.max_rows = 24, 32
+            self.num_categories = 6
+            self.num_regions = 6
         elif self.difficulty == "medium":
-            self.min_rows, self.max_rows = 35, 45
-            self.num_categories = 7
-            self.num_regions = 7
+            self.min_rows, self.max_rows = 55, 65
+            self.num_categories = 8
+            self.num_regions = 8
         elif self.difficulty == "hard":
-            self.min_rows, self.max_rows = 48, 58
+            self.min_rows, self.max_rows = 80, 85
             self.num_categories = 8
             self.num_regions = 8
 
@@ -75,11 +75,13 @@ PRODUCT_NAMES = [
     "우유", "치즈", "요구르트", "버터", "아이스크림", "두부", "계란", "햄", "소시지", "베이컨",
     "빵", "쌀", "라면", "파스타", "시리얼", "쿠키", "초콜릿", "사탕", "젤리", "껌",
     "콜라", "사이다", "주스", "커피", "녹차", "생수", "맥주", "소주", "와인", "막걸리",
-    "아보카도", "블루베리", "라즈베리", "석류", "무화과", "고등어", "굴", "조개", "멸치", "랍스터",
-    "상추", "시금치", "당근", "오이", "버섯", "만두", "어묵", "육포", "팝콘", "감자칩",
+    "키위", "망고", "체리", "레몬", "라임", "코코넛", "아몬드", "호두", "땅콩", "캐슈너트",
+    "참치", "연어", "새우", "게", "오징어", "미역", "양파", "마늘", "고추", "토마토",
+    "아보카도", "블루베리", "라즈베리", "석류", "무화과",
+    "고등어", "굴", "조개", "멸치", "랍스터",
+    "상추", "시금치", "당근", "오이", "버섯",
+    "만두", "어묵", "육포", "팝콘", "감자칩",
     "브랜디", "위스키", "밀크셰이크", "스무디", "콤부차",
-    "토마토", "양파", "고구마", "호박", "브로콜리", "미역", "김", "새우", "참치", "연어",
-    "케이크", "도넛", "마카롱", "타르트", "크로와상",
 ]
 
 CATEGORIES = ["과일", "유제품", "육류", "곡물", "음료", "채소", "수산물", "가공식품"]
@@ -98,7 +100,8 @@ CUSTOMER_NAMES = [
 def generate_product_table(
     num_rows: int,
     num_categories: int,
-    seed: int
+    seed: int,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """상품 테이블 생성"""
     rng = random.Random(seed)
@@ -116,6 +119,16 @@ def generate_product_table(
             "재고": rng.randint(10, 200),
             "할인율": rng.choice([0, 5, 10, 15, 20]),
         }
+        if difficulty in ("medium", "hard"):
+            row.update({
+                "공급사": f"S-{rng.randint(1, 12):02d}",
+                "창고": rng.choice(["북부", "남부", "동부", "서부"]),
+            })
+        if difficulty == "hard":
+            row.update({
+                "세율": rng.choice([0, 3, 5, 8, 10]),
+                "평점": rng.randint(1, 5),
+            })
         table.append(row)
 
     return table
@@ -126,7 +139,8 @@ def generate_sales_table(
     num_orders: int,
     num_regions: int,
     seed: int,
-    customer_table: Optional[List[Dict]] = None
+    customer_table: Optional[List[Dict]] = None,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """주문 테이블 생성"""
     rng = random.Random(seed + 1000)
@@ -145,6 +159,16 @@ def generate_sales_table(
         }
         if customer_table is not None:
             row["고객번호"] = rng.choice(customer_table)["고객번호"]
+        if difficulty in ("medium", "hard"):
+            row.update({
+                "채널": rng.choice(["온라인", "매장", "제휴", "전화"]),
+                "우선순위": rng.choice(["낮음", "보통", "높음"]),
+            })
+        if difficulty == "hard":
+            row.update({
+                "배송비": rng.randint(0, 20) * 100,
+                "프로모션율": rng.choice([0, 5, 10, 15]),
+            })
         table.append(row)
 
     return table
@@ -153,7 +177,8 @@ def generate_sales_table(
 def generate_customer_table(
     num_customers: int,
     num_regions: int,
-    seed: int
+    seed: int,
+    difficulty: str = "easy"
 ) -> List[Dict[str, Any]]:
     """고객 테이블 생성"""
     rng = random.Random(seed + 3000)
@@ -170,6 +195,13 @@ def generate_customer_table(
             "가입연도": rng.randint(2018, 2024),
             "지역": rng.choice(regions),
         }
+        if difficulty in ("medium", "hard"):
+            row["세그먼트"] = rng.choice(["개인", "기업", "교육", "공공"])
+        if difficulty == "hard":
+            row.update({
+                "연령대": rng.choice(["20대", "30대", "40대", "50대"]),
+                "포인트": rng.randint(0, 5000),
+            })
         table.append(row)
 
     return table
@@ -236,12 +268,12 @@ def _group_distinct_count(items, key_fn, val_fn):
 
 
 def _std_dev(values):
-    """모집단 표준편차 (정수 버림)."""
-    if not values:
+    """모집단 표준편차."""
+    if len(values) == 0:
         return 0
     mean = sum(values) / len(values)
     variance = sum((x - mean) ** 2 for x in values) / len(values)
-    return int(variance ** 0.5)
+    return variance ** 0.5
 
 
 def _weighted_choice(rng, templates):
@@ -257,19 +289,57 @@ def _weighted_choice(rng, templates):
     return templates[-1][0], templates[-1][1], templates[-1][3]
 
 
+def _calibrate_template_weights(difficulty: str, templates):
+    """난이도가 올라갈수록 다단계 숫자형 템플릿이 더 자주 뽑히도록 보정."""
+    if difficulty == "easy":
+        weight_multipliers = {1: 0.75, 2: 1.80}
+        text_multiplier = 0.90
+        numeric_multiplier = 1.05
+    elif difficulty == "medium":
+        weight_multipliers = {1: 0.40, 2: 3.60}
+        text_multiplier = 0.45
+        numeric_multiplier = 1.25
+    elif difficulty == "hard":
+        weight_multipliers = {1: 0.20, 2: 5.00}
+        text_multiplier = 0.30
+        numeric_multiplier = 1.40
+    else:
+        weight_multipliers = {}
+        text_multiplier = 1.0
+        numeric_multiplier = 1.0
+
+    return [
+        (
+            question,
+            answer,
+            weight
+            * weight_multipliers.get(weight, 1.0)
+            * (numeric_multiplier if isinstance(answer, (int, float)) else text_multiplier),
+            solution,
+        )
+        for question, answer, weight, solution in templates
+    ]
+
+
 def _make_tables_dict(product_table, sales_table, customer_table):
     """표준 3테이블 딕셔너리 생성."""
+    def columns(base_columns, table):
+        extra_columns = []
+        if table:
+            extra_columns = [col for col in table[0].keys() if col not in base_columns]
+        return base_columns + extra_columns
+
     return {
         "상품": {
-            "columns": ["id", "상품명", "카테고리", "가격", "재고", "할인율"],
+            "columns": columns(["id", "상품명", "카테고리", "가격", "재고", "할인율"], product_table),
             "data": product_table
         },
         "주문": {
-            "columns": ["주문번호", "상품명", "지역", "수량", "분기", "고객번호"],
+            "columns": columns(["주문번호", "상품명", "지역", "수량", "분기", "고객번호"], sales_table),
             "data": sales_table
         },
         "고객": {
-            "columns": ["고객번호", "이름", "등급", "가입연도", "지역"],
+            "columns": columns(["고객번호", "이름", "등급", "가입연도", "지역"], customer_table),
             "data": customer_table
         }
     }
@@ -279,24 +349,24 @@ def _make_tables_dict(product_table, sales_table, customer_table):
 # 공통 데이터 생성
 # ============================================================
 
-_ORDER_COUNTS = {"easy": (25, 40), "medium": (50, 70), "hard": (75, 110)}
-_CUSTOMER_COUNTS = {"easy": (8, 12), "medium": (12, 16), "hard": (15, 19)}
+_ORDER_COUNTS = {"easy": (35, 50), "medium": (120, 170), "hard": (280, 360)}
+_CUSTOMER_COUNTS = {"easy": (10, 14), "medium": (18, 20), "hard": (20, 20)}
 
 
 def _generate_all_tables(config, rng):
     """3개 테이블 + 헬퍼 맵 생성."""
     num_rows = rng.randint(config.min_rows, config.max_rows)
     seed = rng.randint(1, 10000)
-    product_table = generate_product_table(num_rows, config.num_categories, seed)
+    product_table = generate_product_table(num_rows, config.num_categories, seed, config.difficulty)
 
     min_o, max_o = _ORDER_COUNTS[config.difficulty]
     min_c, max_c = _CUSTOMER_COUNTS[config.difficulty]
     num_orders = rng.randint(min_o, max_o)
     num_customers = rng.randint(min_c, max_c)
 
-    customer_table = generate_customer_table(num_customers, config.num_regions, seed)
+    customer_table = generate_customer_table(num_customers, config.num_regions, seed, config.difficulty)
     sales_table = generate_sales_table(
-        product_table, num_orders, config.num_regions, seed, customer_table
+        product_table, num_orders, config.num_regions, seed, customer_table, config.difficulty
     )
 
     product_map = {p["상품명"]: p for p in product_table}
@@ -346,17 +416,33 @@ def generate_lookup_problem(
         chain_order = rng.choice(st)
         chain_cust = cm[chain_order["고객번호"]]
 
-        # NEW T6: 할인가 기준 카테고리 평균 (truncation per-row)
-        cat_disc_prices = [int(p["가격"] * (100 - p["할인율"]) / 100) for p in pt if p["카테고리"] == tgt_cat]
-        cat_disc_avg = int(sum(cat_disc_prices) / len(cat_disc_prices)) if cat_disc_prices else 0
+        # T6 (new-hard): 특정 카테고리의 총 할인 매출
+        cat_disc_rev = sum(
+            int(pm[s["상품명"]]["가격"] * (100 - pm[s["상품명"]]["할인율"]) / 100) * s["수량"]
+            for s in cat_orders
+        )
 
-        # NEW T7: 최대 재고 상품의 가격
-        max_stock_prod = max(pt, key=lambda p: p["재고"])
-        max_stock_price = max_stock_prod["가격"]
+        # T7 (new-hard): 주문수량 상위 3개 카테고리 중 최대 재고 상품 → 할인율
+        cat_qty = _group_sum(st, lambda s: pm[s["상품명"]]["카테고리"], lambda s: s["수량"])
+        cat_qty_ranked = _rank_groups(cat_qty)
+        top3_cats = set(c for c, _ in cat_qty_ranked[:3])
+        top3_cat_prods = [p for p in pt if p["카테고리"] in top3_cats]
+        if top3_cat_prods:
+            max_stock_prod = max(top3_cat_prods, key=lambda p: p["재고"])
+            t7_disc = max_stock_prod["할인율"]
+        else:
+            max_stock_prod = pt[0]
+            t7_disc = pt[0]["할인율"]
 
-        # NEW T8: 주문수량 3위 상품의 할인율
-        rank3_name = qty_ranked[2][0] if len(qty_ranked) >= 3 else qty_ranked[-1][0]
-        rank3_disc = pm[rank3_name]["할인율"]
+        # T8 (new-hard): 주문 건수 최다 지역 → 총 할인 매출
+        reg_count = _group_count(st, lambda s: s["지역"])
+        reg_count_ranked = _rank_groups(reg_count)
+        top_count_reg = reg_count_ranked[0][0] if reg_count_ranked else regions_in_orders[0]
+        top_reg_orders = [s for s in st if s["지역"] == top_count_reg]
+        top_reg_disc_rev = sum(
+            int(pm[s["상품명"]]["가격"] * (100 - pm[s["상품명"]]["할인율"]) / 100) * s["수량"]
+            for s in top_reg_orders
+        )
 
         question_templates = [
             (f"'{target_order['주문번호']}' 주문의 할인 적용 가치는 얼마입니까? (할인가 = 가격×(100-할인율)/100 소수점 버림, 가치 = 할인가 × 수량)",
@@ -393,27 +479,27 @@ def generate_lookup_problem(
              f"3단계: 지역 = '{chain_cust['지역']}'\n"
              f"최종 답: {chain_cust['지역']}"),
 
-            # NEW: 할인가 기준 카테고리 평균 (weight=2)
-            (f"'{tgt_cat}' 카테고리 상품의 평균 할인가는 얼마입니까? (할인가 = 가격×(100-할인율)/100 소수점 버림 후 평균, 소수점 버림)",
-             cat_disc_avg, 2,
-             f"1단계: '{tgt_cat}' 상품 식별\n"
-             f"2단계: 각 상품의 할인가 계산 (소수점 버림)\n"
-             f"3단계: 평균 = {cat_disc_avg}\n최종 답: {cat_disc_avg}"),
+            (f"'{tgt_cat}' 카테고리 상품의 총 할인 매출액은 얼마입니까? (각 주문: 할인가 = 가격×(100-할인율)/100 소수점 버림, 그 다음 수량을 곱해 모두 합산)",
+             cat_disc_rev, 2,
+             f"1단계: '{tgt_cat}' 상품: {', '.join(list(cat_prods)[:5])}\n"
+             f"2단계: 주문 필터링: {len(cat_orders)}건\n"
+             f"3단계: 각 주문마다 할인가(버림) × 수량\n"
+             f"4단계: 합계 = {cat_disc_rev}\n최종 답: {cat_disc_rev}"),
 
-            # NEW: 최대 재고 상품 가격 (weight=2)
-            (f"재고가 가장 많은 상품의 가격은 얼마입니까?",
-             max_stock_price, 2,
-             f"1단계: 상품별 재고 확인\n"
-             f"2단계: 최대 재고 상품 = '{max_stock_prod['상품명']}' (재고: {max_stock_prod['재고']})\n"
-             f"3단계: 가격 = {max_stock_price}\n최종 답: {max_stock_price}"),
+            (f"총 주문수량 상위 3개 카테고리 안에서 재고가 가장 많은 상품의 할인율은 몇 %입니까?",
+             t7_disc, 2,
+             f"1단계: 카테고리별 주문수량: {', '.join(f'{k}({v})' for k,v in cat_qty_ranked[:5])}\n"
+             f"2단계: 상위 3개 카테고리: {', '.join(top3_cats)}\n"
+             f"3단계: 해당 카테고리 상품 수: {len(top3_cat_prods)}개\n"
+             f"4단계: 최대 재고 상품 = '{max_stock_prod['상품명']}' (재고={max_stock_prod['재고']})\n"
+             f"5단계: 할인율 = {t7_disc}%\n최종 답: {t7_disc}"),
 
-            # NEW: 주문수량 3위 할인율 (weight=2)
-            (f"총 주문수량 3위 상품의 할인율은 몇 %입니까?",
-             rank3_disc, 2,
-             f"1단계: 상품별 수량 합산\n"
-             f"2단계: {', '.join(f'{k}({v})' for k,v in qty_ranked[:5])}\n"
-             f"3단계: 3위 = '{rank3_name}'\n"
-             f"4단계: 할인율 = {rank3_disc}%\n최종 답: {rank3_disc}"),
+            (f"주문 건수가 가장 많은 지역은 어디입니까? 그 지역의 총 할인 매출액은 얼마입니까? (할인가 = 가격×(100-할인율)/100, 항목별 버림 후 × 수량)",
+             top_reg_disc_rev, 2,
+             f"1단계: 지역별 주문 건수: {', '.join(f'{k}({v})' for k,v in reg_count_ranked[:5])}\n"
+             f"2단계: 최다 지역 = '{top_count_reg}'\n"
+             f"3단계: '{top_count_reg}' 주문: {len(top_reg_orders)}건\n"
+             f"4단계: 할인 매출 = {top_reg_disc_rev}\n최종 답: {top_reg_disc_rev}"),
         ]
 
     elif config.difficulty == "medium":
@@ -442,13 +528,7 @@ def generate_lookup_problem(
         grade_top_prod = grade_qty_ranked[0][0] if grade_qty_ranked else pt[0]["상품명"]
         grade_top_disc = pm[grade_top_prod]["할인율"]
 
-        # T4: 주문수량 상위 3개 상품의 평균 가격
-        product_qty = _group_sum(st, lambda s: s["상품명"], lambda s: s["수량"])
-        qty_ranked = _rank_groups(product_qty)
-        top3_names = [n for n, _ in qty_ranked[:3]]
-        top3_avg_price = int(sum(pm[n]["가격"] for n in top3_names) / len(top3_names)) if top3_names else 0
-
-        # T5: 특정 분기 매출 1위 상품을 주문한 고객 중 가장 오래된 가입연도
+        # T4: 특정 분기 매출 1위 상품을 주문한 고객 중 가장 오래된 가입연도
         tgt_q = rng.choice(QUARTERS)
         q_orders = [s for s in st if s["분기"] == tgt_q]
         q_prod_rev = _group_sum(q_orders, lambda s: s["상품명"],
@@ -459,10 +539,13 @@ def generate_lookup_problem(
         q_top_cids = set(s["고객번호"] for s in q_top_orders)
         earliest_year = min((cm[cid]["가입연도"] for cid in q_top_cids), default=2020)
 
-        # REPLACED T4: 고유 상품 수 2위 카테고리
+        # T5 (new): 주문된 고유 상품 수 2위 카테고리 → 총 매출
         cat_distinct = _group_distinct_count(st, lambda s: pm[s["상품명"]]["카테고리"], lambda s: s["상품명"])
-        cat_distinct_ranked = _rank_groups(cat_distinct)
-        distinct_2nd_cat = cat_distinct_ranked[1][0] if len(cat_distinct_ranked) >= 2 else cat_distinct_ranked[0][0]
+        cat_dist_ranked = _rank_groups(cat_distinct)
+        t5_cat = cat_dist_ranked[1][0] if len(cat_dist_ranked) >= 2 else cat_dist_ranked[0][0]
+        t5_cat_prods = set(p["상품명"] for p in pt if p["카테고리"] == t5_cat)
+        t5_cat_orders = [s for s in st if s["상품명"] in t5_cat_prods]
+        t5_cat_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in t5_cat_orders)
 
         # NEW T6: 평균 수량 초과 주문의 매출
         all_qtys = [s["수량"] for s in st]
@@ -492,13 +575,6 @@ def generate_lookup_problem(
              f"3단계: 상품별 수량: {', '.join(f'{k}({v})' for k,v in grade_qty_ranked[:5])}\n"
              f"4단계: 1위 = '{grade_top_prod}' → 할인율 = {grade_top_disc}%\n최종 답: {grade_top_disc}"),
 
-            # REPLACED T4: 고유 상품 수 2위 카테고리
-            (f"주문에서 고유 상품 수가 두 번째로 많은 카테고리는 무엇입니까?",
-             distinct_2nd_cat, 2,
-             f"1단계: 주문별 카테고리 매핑\n"
-             f"2단계: 카테고리별 고유 상품 수: {', '.join(f'{k}({v})' for k,v in cat_distinct_ranked)}\n"
-             f"3단계: 2위 = '{distinct_2nd_cat}'\n최종 답: {distinct_2nd_cat}"),
-
             (f"{tgt_q} 매출 1위 상품을 주문한 고객 중 가장 오래된 가입연도는 몇 년입니까?",
              earliest_year, 1,
              f"1단계: {tgt_q} 주문 필터링: {len(q_orders)}건\n"
@@ -506,6 +582,13 @@ def generate_lookup_problem(
              f"3단계: 1위 = '{q_top_prod}'\n"
              f"4단계: 해당 주문 고객: {', '.join(q_top_cids)}\n"
              f"5단계: 가장 오래된 가입연도 = {earliest_year}\n최종 답: {earliest_year}"),
+
+            (f"주문된 고유 상품 수가 두 번째로 많은 카테고리는 무엇입니까? 그 카테고리의 총 매출액은 얼마입니까? (매출 = 가격 × 수량)",
+             t5_cat_rev, 2,
+             f"1단계: 카테고리별 주문된 고유 상품 수: {', '.join(f'{k}({v})' for k,v in cat_dist_ranked[:5])}\n"
+             f"2단계: 2위 = '{t5_cat}'\n"
+             f"3단계: '{t5_cat}' 상품: {', '.join(list(t5_cat_prods)[:5])}\n"
+             f"4단계: 매출 = {t5_cat_rev}\n최종 답: {t5_cat_rev}"),
 
             # NEW T6: 평균 수량 초과 주문 매출
             (f"평균 주문 수량({int(avg_qty)})을 초과하는 주문의 총 매출액은 얼마입니까? (매출 = 가격 × 수량)",
@@ -516,16 +599,19 @@ def generate_lookup_problem(
         ]
 
     else:  # hard
-        # T1: 특정 카테고리 매출 상위 2개 상품 제외 후 해당 카테고리 평균 가격
-        tgt_cat = rng.choice(categories)
-        cat_prods = set(p["상품명"] for p in pt if p["카테고리"] == tgt_cat)
-        cat_orders = [s for s in st if s["상품명"] in cat_prods]
-        cat_prod_rev = _group_sum(cat_orders, lambda s: s["상품명"],
-                                   lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        cat_rev_ranked = _rank_groups(cat_prod_rev)
-        excl_top2 = set(n for n, _ in cat_rev_ranked[:2])
-        remaining_cat_prods = [p for p in pt if p["카테고리"] == tgt_cat and p["상품명"] not in excl_top2]
-        t1_avg = int(sum(p["가격"] for p in remaining_cat_prods) / len(remaining_cat_prods)) if remaining_cat_prods else 0
+        # T1 (Pattern A): 평균 초과 소비 고객 → 고유 카테고리 수 2위 → 지역
+        cust_spend = _group_sum(st, lambda s: s["고객번호"],
+                                lambda s: pm[s["상품명"]]["가격"] * s["수량"])
+        avg_cust_spend = sum(cust_spend.values()) / len(cust_spend) if cust_spend else 0
+        above_avg_cids = {cid for cid, v in cust_spend.items() if v > avg_cust_spend}
+        above_avg_distinct = _group_distinct_count(
+            [s for s in st if s["고객번호"] in above_avg_cids],
+            lambda s: s["고객번호"],
+            lambda s: pm[s["상품명"]]["카테고리"]
+        )
+        above_avg_dist_ranked = _rank_groups(above_avg_distinct)
+        t1_cid = above_avg_dist_ranked[1][0] if len(above_avg_dist_ranked) >= 2 else above_avg_dist_ranked[0][0]
+        t1_region = cm[t1_cid]["지역"]
 
         # T2: 3건 이상 주문 고객 중 평균 주문 가치 2위 고객의 등급
         cust_order_counts = _group_count(st, lambda s: s["고객번호"])
@@ -543,26 +629,45 @@ def generate_lookup_problem(
         t2_cid = avg_val_ranked[1][0] if len(avg_val_ranked) >= 2 else avg_val_ranked[0][0]
         t2_grade = cm[t2_cid]["등급"]
 
-        # T3: 골드 고객의 특정 분기 매출 1위 상품의 재고
-        tgt_q = rng.choice(QUARTERS)
-        gold_cids = set(c["고객번호"] for c in ct if c["등급"] == "골드")
-        gold_q_orders = [s for s in st if s["고객번호"] in gold_cids and s["분기"] == tgt_q]
-        gold_q_rev = _group_sum(gold_q_orders, lambda s: s["상품명"],
-                                lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        gold_q_ranked = _rank_groups(gold_q_rev)
-        t3_prod = gold_q_ranked[0][0] if gold_q_ranked else pt[0]["상품명"]
-        t3_stock = pm[t3_prod]["재고"]
+        # T3 (new): 매출 하위 3개 카테고리 → 평균 수량 최대 상품 → 최다 주문자 → 등급
+        cat_rev = _group_sum(st, lambda s: pm[s["상품명"]]["카테고리"],
+                             lambda s: pm[s["상품명"]]["가격"] * s["수량"])
+        cat_rev_ranked = _rank_groups(cat_rev)
+        bottom3_cats = set(c for c, _ in cat_rev_ranked[-3:]) if len(cat_rev_ranked) >= 3 else set(c for c, _ in cat_rev_ranked)
+        bottom3_prod_avg_qty = {}
+        for p_name in set(p["상품명"] for p in pt if p["카테고리"] in bottom3_cats):
+            p_orders = [s for s in st if s["상품명"] == p_name]
+            if p_orders:
+                bottom3_prod_avg_qty[p_name] = sum(s["수량"] for s in p_orders) / len(p_orders)
+        if bottom3_prod_avg_qty:
+            t3_prod = max(bottom3_prod_avg_qty, key=bottom3_prod_avg_qty.get)
+        else:
+            t3_prod = pt[0]["상품명"]
+        t3_orders = [s for s in st if s["상품명"] == t3_prod]
+        t3_cust_qty = _group_sum(t3_orders, lambda s: s["고객번호"], lambda s: s["수량"])
+        t3_cust_ranked = _rank_groups(t3_cust_qty)
+        t3_top_cid = t3_cust_ranked[0][0] if t3_cust_ranked else ct[0]["고객번호"]
+        t3_membership = cm[t3_top_cid]["등급"]
 
-        # T4: 매출 상위 5개 상품을 주문한 고객 중 브론즈 등급의 수
-        prod_revenue = _group_sum(st, lambda s: s["상품명"],
+        # T4 (new): 2021 이전 가입 → 주문당 평균 소비 1위 → 최다 주문 카테고리 → 평균 재고
+        old_cids = set(c["고객번호"] for c in ct if c["가입연도"] < 2021)
+        old_orders = [s for s in st if s["고객번호"] in old_cids]
+        old_cust_avg = {}
+        old_cust_counts = _group_count(old_orders, lambda s: s["고객번호"])
+        old_cust_rev = _group_sum(old_orders, lambda s: s["고객번호"],
                                   lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        prod_rev_ranked = _rank_groups(prod_revenue)
-        top5_prods = set(n for n, _ in prod_rev_ranked[:5])
-        top5_orders = [s for s in st if s["상품명"] in top5_prods]
-        top5_cids = set(s["고객번호"] for s in top5_orders)
-        bronze_in_top5 = sum(1 for cid in top5_cids if cm[cid]["등급"] == "브론즈")
+        for cid in old_cust_rev:
+            old_cust_avg[cid] = old_cust_rev[cid] / old_cust_counts.get(cid, 1)
+        old_avg_ranked = _rank_groups(old_cust_avg)
+        t4_cid = old_avg_ranked[0][0] if old_avg_ranked else ct[0]["고객번호"]
+        t4_orders = [s for s in st if s["고객번호"] == t4_cid]
+        t4_cat_qty = _group_sum(t4_orders, lambda s: pm[s["상품명"]]["카테고리"], lambda s: s["수량"])
+        t4_cat_ranked = _rank_groups(t4_cat_qty)
+        t4_top_cat = t4_cat_ranked[0][0] if t4_cat_ranked else categories[0]
+        t4_cat_prods = [p for p in pt if p["카테고리"] == t4_top_cat]
+        t4_avg_stock = int(sum(p["재고"] for p in t4_cat_prods) / len(t4_cat_prods)) if t4_cat_prods else 0
 
-        # T5: 가입연도 2021 이후 고객 중 매출 1위 고객이 가장 많이 주문한 카테고리
+        # T5: 2021 이후 가입 고객 → 소비 1위 → 가장 많이 주문한 카테고리
         recent_cids = set(c["고객번호"] for c in ct if c["가입연도"] >= 2021)
         recent_orders = [s for s in st if s["고객번호"] in recent_cids]
         recent_spend = _group_sum(recent_orders, lambda s: s["고객번호"],
@@ -574,60 +679,14 @@ def generate_lookup_problem(
         t5_cat_ranked = _rank_groups(t5_cat_qty)
         t5_top_cat = t5_cat_ranked[0][0] if t5_cat_ranked else categories[0]
 
-        # REPLACED T1: 평균 소비 초과 고객 → 고유 카테고리 수 2위 → 지역
-        all_cust_spend = _group_sum(st, lambda s: s["고객번호"],
-                                     lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        avg_cust_spend = sum(all_cust_spend.values()) / len(all_cust_spend) if all_cust_spend else 0
-        above_avg_cids = set(cid for cid, sp in all_cust_spend.items() if sp > avg_cust_spend)
-        above_avg_orders = [s for s in st if s["고객번호"] in above_avg_cids]
-        above_cat_distinct = _group_distinct_count(above_avg_orders,
-                                                    lambda s: s["고객번호"],
-                                                    lambda s: pm[s["상품명"]]["카테고리"])
-        above_cat_ranked = _rank_groups(above_cat_distinct)
-        t1_cid = above_cat_ranked[1][0] if len(above_cat_ranked) >= 2 else above_cat_ranked[0][0]
-        t1_region = cm[t1_cid]["지역"]
-
-        # REPLACED T4: 매출 하위 3개 카테고리 중 최대 평균 수량 상품의 주문자 → 등급
-        cat_rev_all = _group_sum(st, lambda s: pm[s["상품명"]]["카테고리"],
-                                  lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        cat_all_ranked = _rank_groups(cat_rev_all)
-        bottom3_cats = set(k for k, v in cat_all_ranked[-3:])
-        bottom3_prods = set(p["상품명"] for p in pt if p["카테고리"] in bottom3_cats)
-        bottom3_orders = [s for s in st if s["상품명"] in bottom3_prods]
-        b3_prod_avg_qty = _group_avg(bottom3_orders, lambda s: s["상품명"], lambda s: s["수량"])
-        b3_qty_ranked = _rank_groups(b3_prod_avg_qty)
-        t4_prod = b3_qty_ranked[0][0] if b3_qty_ranked else pt[0]["상품명"]
-        t4_orders = [s for s in st if s["상품명"] == t4_prod]
-        t4_top_cust_spend = _group_sum(t4_orders, lambda s: s["고객번호"],
-                                        lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        t4_spend_ranked = _rank_groups(t4_top_cust_spend)
-        t4_cid = t4_spend_ranked[0][0] if t4_spend_ranked else ct[0]["고객번호"]
-        t4_grade = cm[t4_cid]["등급"]
-
-        # REPLACED T5: 2021 이전 가입 → 주문당 평균 매출 1위 → 가장 많이 주문한 카테고리 → 해당 카테고리 평균 재고
-        pre2021_cids = set(c["고객번호"] for c in ct if c["가입연도"] < 2021)
-        pre2021_orders = [s for s in st if s["고객번호"] in pre2021_cids]
-        pre2021_cust_rev = _group_sum(pre2021_orders, lambda s: s["고객번호"],
-                                       lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        pre2021_cust_cnt = _group_count(pre2021_orders, lambda s: s["고객번호"])
-        pre2021_avg_val = {cid: pre2021_cust_rev[cid] / pre2021_cust_cnt[cid] for cid in pre2021_cust_rev}
-        pre2021_avg_ranked = _rank_groups(pre2021_avg_val)
-        t5_cid = pre2021_avg_ranked[0][0] if pre2021_avg_ranked else ct[0]["고객번호"]
-        t5_orders = [s for s in st if s["고객번호"] == t5_cid]
-        t5_cat_qty = _group_sum(t5_orders, lambda s: pm[s["상품명"]]["카테고리"], lambda s: s["수량"])
-        t5_cat_ranked = _rank_groups(t5_cat_qty)
-        t5_top_cat = t5_cat_ranked[0][0] if t5_cat_ranked else categories[0]
-        t5_cat_prods = [p for p in pt if p["카테고리"] == t5_top_cat]
-        t5_avg_stock = int(sum(p["재고"] for p in t5_cat_prods) / len(t5_cat_prods)) if t5_cat_prods else 0
-
         question_templates = [
-            # REPLACED T1: 평균 소비 초과 → 고유 카테고리 2위 → 지역
             (f"평균 소비액 초과 고객 중 고유 카테고리 수 기준 2위 고객의 지역은 어디입니까? (소비 = 가격×수량)",
-             t1_region, 2,
-             f"1단계: 고객별 소비액 계산, 평균 = {int(avg_cust_spend)}\n"
-             f"2단계: 평균 초과 고객: {len(above_avg_cids)}명\n"
-             f"3단계: 고유 카테고리 수: {', '.join(f'{k}({v})' for k,v in above_cat_ranked[:5])}\n"
-             f"4단계: 2위 = '{t1_cid}' → 지역 = '{t1_region}'\n최종 답: {t1_region}"),
+             t1_region, 1,
+             f"1단계: 고객별 소비액 계산\n"
+             f"2단계: 평균 = {int(avg_cust_spend)}\n"
+             f"3단계: 평균 초과 고객: {len(above_avg_cids)}명\n"
+             f"4단계: 평균 초과 고객별 고유 카테고리 수: {', '.join(f'{k}({v})' for k,v in above_avg_dist_ranked[:5])}\n"
+             f"5단계: 2위 = '{t1_cid}' → 지역 = '{t1_region}'\n최종 답: {t1_region}"),
 
             (f"3건 이상 주문한 고객 중 평균 주문 가치(가격×수량/주문수) 2위 고객의 등급은 무엇입니까?",
              t2_grade, 1,
@@ -637,32 +696,34 @@ def generate_lookup_problem(
              f"5단계: {', '.join(f'{k}({int(v)})' for k,v in avg_val_ranked[:5])}\n"
              f"6단계: 2위 = '{t2_cid}' → 등급 = '{t2_grade}'\n최종 답: {t2_grade}"),
 
-            (f"골드 등급 고객의 {tgt_q} 매출 1위 상품의 재고는 얼마입니까?",
-             t3_stock, 1,
-             f"1단계: 골드 고객: {len(gold_cids)}명\n"
-             f"2단계: 골드 {tgt_q} 주문: {len(gold_q_orders)}건\n"
-             f"3단계: 상품별 매출: {', '.join(f'{k}({v})' for k,v in gold_q_ranked[:5])}\n"
-             f"4단계: 1위 = '{t3_prod}' → 재고 = {t3_stock}\n최종 답: {t3_stock}"),
-
-            # REPLACED T4: 하위 3개 카테고리 → 최대 평균 수량 상품 → 최고 소비 고객 등급
-            (f"매출 하위 3개 카테고리 중 평균 주문 수량이 가장 높은 상품의 최다 소비 고객 등급은 무엇입니까?",
-             t4_grade, 2,
-             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in cat_all_ranked)}\n"
+            (f"총 매출 하위 3개 카테고리 중 평균 주문 수량이 가장 높은 상품을 찾으세요. 그 상품을 수량 기준으로 가장 많이 주문한 고객의 등급은 무엇입니까?",
+             t3_membership, 1,
+             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in cat_rev_ranked)}\n"
              f"2단계: 하위 3개: {', '.join(bottom3_cats)}\n"
-             f"3단계: 평균 수량: {', '.join(f'{k}({int(v)})' for k,v in b3_qty_ranked[:3])}\n"
-             f"4단계: 1위 = '{t4_prod}' → 최다 소비 고객 = '{t4_cid}' → 등급 = '{t4_grade}'\n최종 답: {t4_grade}"),
+             f"3단계: 하위 3개 카테고리 상품별 평균 주문 수량 계산\n"
+             f"4단계: 평균 수량 최대 상품 = '{t3_prod}'\n"
+             f"5단계: 최다 주문 고객 = '{t3_top_cid}' → 등급 = '{t3_membership}'\n최종 답: {t3_membership}"),
 
-            # REPLACED T5: 2021 이전 가입 → 주문당 평균 1위 → 최다 카테고리 → 평균 재고
             (f"2021년 이전 가입 고객 중 주문당 평균 매출이 가장 높은 고객이 가장 많이 주문한 카테고리의 평균 재고는 얼마입니까? (소수점 버림)",
-             t5_avg_stock, 2,
-             f"1단계: 2021 이전 가입: {len(pre2021_cids)}명\n"
-             f"2단계: 주문당 평균 매출: {', '.join(f'{k}({int(v)})' for k,v in pre2021_avg_ranked[:5])}\n"
+             t4_avg_stock, 1,
+             f"1단계: 2021 이전 가입 고객: {len(old_cids)}명\n"
+             f"2단계: 주문당 평균 매출: {', '.join(f'{k}({int(v)})' for k,v in old_avg_ranked[:5])}\n"
+             f"3단계: 1위 = '{t4_cid}'\n"
+             f"4단계: 최다 주문 카테고리 = '{t4_top_cat}'\n"
+             f"5단계: '{t4_top_cat}' 상품: {len(t4_cat_prods)}개, 평균 재고 = {t4_avg_stock}\n최종 답: {t4_avg_stock}"),
+
+            (f"2021년 이후 가입 고객 중 소비액 1위 고객이 수량 기준으로 가장 많이 주문한 카테고리는 무엇입니까? (카테고리명으로 답하세요)",
+             t5_top_cat, 1,
+             f"1단계: 2021 이후 가입 고객: {len(recent_cids)}명\n"
+             f"2단계: 소비액: {', '.join(f'{k}({int(v)})' for k,v in recent_ranked[:5])}\n"
              f"3단계: 1위 = '{t5_cid}'\n"
-             f"4단계: 카테고리별 수량: {', '.join(f'{k}({v})' for k,v in t5_cat_ranked)}\n"
-             f"5단계: 최다 카테고리 = '{t5_top_cat}', 평균 재고 = {t5_avg_stock}\n최종 답: {t5_avg_stock}"),
+             f"4단계: '{t5_cid}' 카테고리별 수량: {', '.join(f'{k}({v})' for k,v in t5_cat_ranked)}\n"
+             f"5단계: 최다 카테고리 = '{t5_top_cat}'\n최종 답: {t5_top_cat}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.LOOKUP_QUERY.value,
@@ -708,26 +769,23 @@ def generate_conditional_aggregation_problem(
         disc_prods = set(p["상품명"] for p in pt if p["할인율"] >= 10)
         disc_order_count = len([s for s in st if s["상품명"] in disc_prods])
 
-        # NEW T6: 중앙값 수량 이하 주문의 매출
+        # T6 (new): 수량이 중앙값을 초과하는 주문의 매출
         all_qtys = sorted(s["수량"] for s in st)
-        median_qty = all_qtys[len(all_qtys) // 2] if all_qtys else 0
-        below_med_orders = [s for s in st if s["수량"] <= median_qty]
-        below_med_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in below_med_orders)
+        med_qty = _median(all_qtys)
+        above_med_orders = [s for s in st if s["수량"] > med_qty]
+        above_med_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in above_med_orders)
 
-        # NEW T7: 평균 가격 초과 할인 상품 재고 가치
-        all_avg_price = sum(p["가격"] for p in pt) / len(pt) if pt else 0
-        high_price_disc_prods = [p for p in pt if p["가격"] > all_avg_price and p["할인율"] > 0]
-        high_price_disc_inv = sum(int(p["가격"] * (100 - p["할인율"]) / 100) * p["재고"] for p in high_price_disc_prods)
+        # T7 (new): 평균 가격 초과 상품 → 할인 재고 가치
+        all_avg_price = int(sum(p["가격"] for p in pt) / len(pt)) if pt else 0
+        above_avg_prods = [p for p in pt if p["가격"] > all_avg_price]
+        above_avg_disc_inv = sum(int(p["가격"] * (100 - p["할인율"]) / 100) * p["재고"] for p in above_avg_prods)
 
-        # NEW T8: 최고 할인율 카테고리의 주문 건수
-        cat_max_disc = {}
-        for p in pt:
-            cat = p["카테고리"]
-            if cat not in cat_max_disc or p["할인율"] > cat_max_disc[cat]:
-                cat_max_disc[cat] = p["할인율"]
-        highest_disc_cat = max(cat_max_disc, key=cat_max_disc.get) if cat_max_disc else tgt_cat
-        hdc_prods = set(p["상품명"] for p in pt if p["카테고리"] == highest_disc_cat)
-        hdc_order_count = len([s for s in st if s["상품명"] in hdc_prods])
+        # T8 (new): 평균 할인율이 가장 높은 카테고리 → 주문 건수
+        cat_avg_disc = _group_avg(pt, lambda p: p["카테고리"], lambda p: p["할인율"])
+        cat_disc_ranked = _rank_groups(cat_avg_disc)
+        top_disc_cat = cat_disc_ranked[0][0] if cat_disc_ranked else categories[0]
+        top_disc_cat_prods = set(p["상품명"] for p in pt if p["카테고리"] == top_disc_cat)
+        top_disc_cat_orders = len([s for s in st if s["상품명"] in top_disc_cat_prods])
 
         question_templates = [
             (f"'{tgt_cat}' 카테고리 상품의 총 매출액은 얼마입니까? (매출 = 가격 × 수량, 상품 테이블에서 가격 조회)",
@@ -759,26 +817,25 @@ def generate_conditional_aggregation_problem(
              f"2단계: 해당 주문 필터링\n"
              f"3단계: 건수 = {disc_order_count}\n최종 답: {disc_order_count}"),
 
-            # NEW: 중앙값 수량 이하 매출 (weight=2)
-            (f"수량이 중앙값({median_qty}) 이하인 주문의 총 매출액은 얼마입니까? (매출 = 가격 × 수량)",
-             below_med_rev, 2,
-             f"1단계: 수량 정렬, 중앙값 = {median_qty}\n"
-             f"2단계: 수량 ≤ {median_qty} 주문: {len(below_med_orders)}건\n"
-             f"3단계: 매출 합계 = {below_med_rev}\n최종 답: {below_med_rev}"),
+            (f"주문 수량이 중앙값({med_qty})을 초과하는 주문의 총 매출액은 얼마입니까? (매출 = 가격 × 수량)",
+             above_med_rev, 2,
+             f"1단계: 주문 수량 중앙값 = {med_qty}\n"
+             f"2단계: 수량 > {med_qty} 주문: {len(above_med_orders)}건\n"
+             f"3단계: 매출 합계 = {above_med_rev}\n최종 답: {above_med_rev}"),
 
-            # NEW: 평균 가격 초과 할인 상품 재고 가치 (weight=2)
-            (f"평균 가격({int(all_avg_price)}) 초과이면서 할인율 > 0인 상품의 할인 재고 가치 합계는 얼마입니까? (할인가 = 가격×(100-할인율)/100 소수점 버림, 할인가×재고의 합)",
-             high_price_disc_inv, 2,
-             f"1단계: 평균 가격 = {int(all_avg_price)}\n"
-             f"2단계: 가격 > 평균 AND 할인율 > 0: {len(high_price_disc_prods)}개\n"
-             f"3단계: 합계 = {high_price_disc_inv}\n최종 답: {high_price_disc_inv}"),
+            (f"전체 평균 가격({all_avg_price})보다 가격이 높은 상품들의 총 할인 재고 가치는 얼마입니까? (할인가 = 가격×(100-할인율)/100 소수점 버림, 그 다음 재고를 곱해 합산)",
+             above_avg_disc_inv, 2,
+             f"1단계: 평균 가격 = {all_avg_price}\n"
+             f"2단계: 평균 초과 상품: {len(above_avg_prods)}개\n"
+             f"3단계: 각 상품마다 할인가(버림) × 재고\n"
+             f"4단계: 합계 = {above_avg_disc_inv}\n최종 답: {above_avg_disc_inv}"),
 
-            # NEW: 최고 할인율 카테고리 주문 건수 (weight=2)
-            (f"상품 중 최고 할인율이 가장 높은 카테고리('{highest_disc_cat}')의 주문 건수는 몇 건입니까?",
-             hdc_order_count, 2,
-             f"1단계: 카테고리별 최고 할인율: {', '.join(f'{k}({v})' for k,v in cat_max_disc.items())}\n"
-             f"2단계: 최고 = '{highest_disc_cat}'\n"
-             f"3단계: 해당 주문 건수 = {hdc_order_count}\n최종 답: {hdc_order_count}"),
+            (f"평균 할인율이 가장 높은 카테고리는 무엇입니까? 그 카테고리 상품의 주문 건수는 몇 건입니까?",
+             top_disc_cat_orders, 2,
+             f"1단계: 카테고리별 평균 할인율: {', '.join(f'{k}({v:.1f})' for k,v in cat_disc_ranked[:5])}\n"
+             f"2단계: 최고 = '{top_disc_cat}'\n"
+             f"3단계: '{top_disc_cat}' 상품: {len(top_disc_cat_prods)}개\n"
+             f"4단계: 주문 건수 = {top_disc_cat_orders}\n최종 답: {top_disc_cat_orders}"),
         ]
 
     elif config.difficulty == "medium":
@@ -809,16 +866,15 @@ def generate_conditional_aggregation_problem(
         high_stock_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in st if s["상품명"] in high_stock_prods)
         high_stock_pct = int(high_stock_rev * 100 / total_rev) if total_rev > 0 else 0
 
-        # T5: 할인율별 상품 그룹의 매출 중 할인율 0%인 그룹의 매출
-        disc0_prods = set(p["상품명"] for p in pt if p["할인율"] == 0)
-        disc0_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in st if s["상품명"] in disc0_prods)
-
-        # REPLACED T1: 골드 고객의 특정 분기 매출 비율
-        tgt_q = rng.choice(QUARTERS)
+        # T5 (new): 주문 건수가 가장 많은 분기 → 골드 고객 매출 비율
+        q_counts = _group_count(st, lambda s: s["분기"])
+        q_count_ranked = _rank_groups(q_counts)
+        top_q = q_count_ranked[0][0] if q_count_ranked else "1분기"
+        top_q_orders = [s for s in st if s["분기"] == top_q]
+        top_q_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in top_q_orders)
         gold_cids = set(c["고객번호"] for c in ct if c["등급"] == "골드")
-        gold_q_orders = [s for s in st if s["고객번호"] in gold_cids and s["분기"] == tgt_q]
-        gold_q_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in gold_q_orders)
-        gold_q_pct = int(gold_q_rev * 100 / total_rev) if total_rev > 0 else 0
+        top_q_gold_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in top_q_orders if s["고객번호"] in gold_cids)
+        top_q_gold_pct = int(top_q_gold_rev * 100 / top_q_rev) if top_q_rev > 0 else 0
 
         # NEW T6: 수량 가중 평균 가격과 단순 평균 가격의 차이
         total_qty = sum(s["수량"] for s in st)
@@ -827,13 +883,12 @@ def generate_conditional_aggregation_problem(
         price_diff = abs(qty_weighted_price - simple_avg_price)
 
         question_templates = [
-            # REPLACED T1: 골드 분기 매출 비율
-            (f"골드 등급 고객의 {tgt_q} 매출이 전체 매출의 몇 %입니까? (소수점 버림)",
-             gold_q_pct, 2,
-             f"1단계: 골드 고객: {len(gold_cids)}명\n"
-             f"2단계: 골드 {tgt_q} 주문: {len(gold_q_orders)}건, 매출 = {gold_q_rev}\n"
-             f"3단계: 전체 매출 = {total_rev}\n"
-             f"4단계: 비율 = {gold_q_pct}%\n최종 답: {gold_q_pct}"),
+            (f"'{tgt_cat}' 카테고리의 매출이 전체 매출의 몇 %를 차지합니까? (소수점 버림, 매출 = 가격 × 수량)",
+             tgt_cat_pct, 1,
+             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in cat_rev_ranked)}\n"
+             f"2단계: 전체 매출 = {total_rev}\n"
+             f"3단계: '{tgt_cat}' 매출 = {tgt_cat_rev}\n"
+             f"4단계: 비율 = {tgt_cat_pct}%\n최종 답: {tgt_cat_pct}"),
 
             (f"고객별 평균 소비액보다 많이 소비한 고객은 몇 명입니까? (소비 = 가격 × 수량의 합)",
              custs_above, 1,
@@ -855,20 +910,18 @@ def generate_conditional_aggregation_problem(
              f"3단계: 해당 매출 = {high_stock_rev}\n"
              f"4단계: 전체 = {total_rev}, 비율 = {high_stock_pct}%\n최종 답: {high_stock_pct}"),
 
-            # REPLACED T5: 수량 가중 평균 가격 vs 단순 평균 가격
+            (f"주문 건수가 가장 많은 분기({top_q})에서, 해당 분기 매출 중 골드 등급 고객 매출은 몇 %입니까? (소수점 버림)",
+             top_q_gold_pct, 2,
+             f"1단계: 분기별 주문 건수: {', '.join(f'{k}({v})' for k,v in q_count_ranked)}\n"
+             f"2단계: 최다 주문 분기 = {top_q}\n"
+             f"3단계: {top_q} 매출 = {top_q_rev}, {top_q} 골드 매출 = {top_q_gold_rev}\n"
+             f"4단계: 비율 = {top_q_gold_pct}%\n최종 답: {top_q_gold_pct}"),
+
             (f"수량 가중 평균 가격(sum(가격×수량)/sum(수량))과 상품 단순 평균 가격의 차이는 얼마입니까? (절대값, 소수점 버림)",
              price_diff, 2,
              f"1단계: 수량 가중 평균 가격 = {qty_weighted_price}\n"
              f"2단계: 단순 평균 가격 = {simple_avg_price}\n"
              f"3단계: 차이 = {price_diff}\n최종 답: {price_diff}"),
-
-            # NEW T6: 수량 가중 평균 가격 차이
-            (f"'{tgt_cat}' 카테고리의 매출이 전체 매출의 몇 %를 차지합니까? (소수점 버림, 매출 = 가격 × 수량)",
-             tgt_cat_pct, 1,
-             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in cat_rev_ranked)}\n"
-             f"2단계: 전체 매출 = {total_rev}\n"
-             f"3단계: '{tgt_cat}' 매출 = {tgt_cat_rev}\n"
-             f"4단계: 비율 = {tgt_cat_pct}%\n최종 답: {tgt_cat_pct}"),
         ]
 
     else:  # hard
@@ -880,67 +933,27 @@ def generate_conditional_aggregation_problem(
                 cat_avg[cat] = sum(p["가격"] for p in prods) / len(prods)
         avg_of_avgs = int(sum(cat_avg.values()) / len(cat_avg)) if cat_avg else 0
 
-        # T2: 카테고리별 평균 할인가의 전체 평균 (avg-of-avg 할인 버전)
-        cat_avg_disc = {}
-        for cat in categories:
-            prods = [p for p in pt if p["카테고리"] == cat]
-            if prods:
-                cat_avg_disc[cat] = sum(p["가격"] * (100 - p["할인율"]) / 100 for p in prods) / len(prods)
-        avg_of_avg_disc = int(sum(cat_avg_disc.values()) / len(cat_avg_disc)) if cat_avg_disc else 0
-
-        # T3: 3중 조건 비율 - 특정 등급 + 특정 분기의 매출 비율
-        tgt_grade = rng.choice(["골드", "실버"])
-        tgt_q = rng.choice(QUARTERS)
-        grade_cids = set(c["고객번호"] for c in ct if c["등급"] == tgt_grade)
-        total_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in st)
-        grade_q_orders = [s for s in st if s["고객번호"] in grade_cids and s["분기"] == tgt_q]
-        grade_q_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in grade_q_orders)
-        grade_q_pct = int(grade_q_rev * 100 / total_rev) if total_rev > 0 else 0
-
-        # T4: 변동계수 유사 - 카테고리별 매출의 최대/최소 비율
-        cat_rev = _group_sum(st, lambda s: pm[s["상품명"]]["카테고리"],
-                             lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        cat_rev_ranked = _rank_groups(cat_rev)
-        max_cat_rev = cat_rev_ranked[0][1] if cat_rev_ranked else 0
-        min_cat_rev = cat_rev_ranked[-1][1] if cat_rev_ranked else 1
-        max_min_ratio = int(max_cat_rev * 100 / min_cat_rev) if min_cat_rev > 0 else 0
-
-        # T5: 분기별 매출 평균의 평균과 전체 주문당 평균 매출의 차이
-        q_rev = _group_sum(st, lambda s: s["분기"],
-                           lambda s: pm[s["상품명"]]["가격"] * s["수량"])
-        q_counts = _group_count(st, lambda s: s["분기"])
-        q_avgs = {q: q_rev.get(q, 0) / q_counts.get(q, 1) for q in q_rev}
-        avg_of_q_avgs = int(sum(q_avgs.values()) / len(q_avgs)) if q_avgs else 0
-        overall_avg = int(total_rev / len(st)) if st else 0
-        diff_avgs = abs(avg_of_q_avgs - overall_avg)
-
-        # T6: 할인율 가중평균과 단순평균의 차이 (가중 = 매출 가중)
-        total_weighted_disc = sum(
-            pm[s["상품명"]]["가격"] * s["수량"] * pm[s["상품명"]]["할인율"]
-            for s in st
-        )
-        weighted_avg_disc = int(total_weighted_disc / total_rev) if total_rev > 0 else 0
-        simple_avg_disc = int(sum(p["할인율"] for p in pt) / len(pt)) if pt else 0
-        disc_diff = abs(weighted_avg_disc - simple_avg_disc)
-
-        # REPLACED T2: 골드 전용 avg-of-avg vs 전체 avg-of-avg 차이 (Pattern C)
+        # T2 (Pattern C): 골드 전용 avg-of-avg vs 전체 avg-of-avg 차이
         gold_cids = set(c["고객번호"] for c in ct if c["등급"] == "골드")
         gold_orders = [s for s in st if s["고객번호"] in gold_cids]
         gold_cat_avg = {}
         for cat in categories:
-            gold_cat_orders = [s for s in gold_orders if pm[s["상품명"]]["카테고리"] == cat]
-            if gold_cat_orders:
-                gold_cat_avg[cat] = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in gold_cat_orders) / len(gold_cat_orders)
+            cat_prods_set = set(p["상품명"] for p in pt if p["카테고리"] == cat)
+            cat_gold = [s for s in gold_orders if s["상품명"] in cat_prods_set]
+            if cat_gold:
+                gold_cat_avg[cat] = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in cat_gold) / len(cat_gold)
         gold_avg_of_avg = int(sum(gold_cat_avg.values()) / len(gold_cat_avg)) if gold_cat_avg else 0
-        overall_cat_avg = {}
+        all_cat_avg_rev = {}
         for cat in categories:
-            cat_ords = [s for s in st if pm[s["상품명"]]["카테고리"] == cat]
-            if cat_ords:
-                overall_cat_avg[cat] = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in cat_ords) / len(cat_ords)
-        overall_avg_of_avg = int(sum(overall_cat_avg.values()) / len(overall_cat_avg)) if overall_cat_avg else 0
-        gold_aoa_diff = abs(gold_avg_of_avg - overall_avg_of_avg)
+            cat_prods_set = set(p["상품명"] for p in pt if p["카테고리"] == cat)
+            cat_all = [s for s in st if s["상품명"] in cat_prods_set]
+            if cat_all:
+                all_cat_avg_rev[cat] = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in cat_all) / len(cat_all)
+        overall_avg_of_avg = int(sum(all_cat_avg_rev.values()) / len(all_cat_avg_rev)) if all_cat_avg_rev else 0
+        avg_of_avg_diff = abs(gold_avg_of_avg - overall_avg_of_avg)
 
-        # REPLACED T4: 분기별 할인 매출 비율 최대 vs 전체 비율 비교
+        # T3: 분기별 할인 매출 비율 → 최대 분기 vs 전체 비율
+        total_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in st)
         total_disc_rev = int(sum(
             pm[s["상품명"]]["가격"] * (100 - pm[s["상품명"]]["할인율"]) / 100 * s["수량"]
             for s in st
@@ -948,17 +961,38 @@ def generate_conditional_aggregation_problem(
         overall_disc_pct = int(total_disc_rev * 100 / total_rev) if total_rev > 0 else 0
         q_disc_pcts = {}
         for q in QUARTERS:
-            qo = [s for s in st if s["분기"] == q]
-            q_total = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in qo)
-            q_disc = int(sum(pm[s["상품명"]]["가격"] * (100 - pm[s["상품명"]]["할인율"]) / 100 * s["수량"] for s in qo))
-            q_disc_pcts[q] = int(q_disc * 100 / q_total) if q_total > 0 else 0
-        max_q_disc_pct = max(q_disc_pcts.values()) if q_disc_pcts else 0
+            q_orders = [s for s in st if s["분기"] == q]
+            q_rev = sum(pm[s["상품명"]]["가격"] * s["수량"] for s in q_orders)
+            q_disc = int(sum(pm[s["상품명"]]["가격"] * (100 - pm[s["상품명"]]["할인율"]) / 100 * s["수량"] for s in q_orders))
+            q_disc_pcts[q] = int(q_disc * 100 / q_rev) if q_rev > 0 else 0
+        q_disc_ranked = _rank_groups(q_disc_pcts)
+        max_q_disc_pct = q_disc_ranked[0][1] if q_disc_ranked else 0
         disc_pct_diff = abs(max_q_disc_pct - overall_disc_pct)
 
-        # REPLACED T6: 카테고리별 매출 변동계수 (CV = std_dev / mean × 100)
-        cat_rev_values = list(cat_rev.values())
-        cat_mean = sum(cat_rev_values) / len(cat_rev_values) if cat_rev_values else 1
-        cat_cv = int(_std_dev(cat_rev_values) * 100 / cat_mean) if cat_mean > 0 else 0
+        # T4 (Pattern D): 할인율을 5%p 줄인 카운터팩추얼
+        counterfactual_rev = int(sum(
+            pm[s["상품명"]]["가격"] * (100 - max(0, pm[s["상품명"]]["할인율"] - 5)) / 100 * s["수량"]
+            for s in st
+        ))
+        actual_disc_rev = total_disc_rev
+        counterfactual_diff = abs(counterfactual_rev - actual_disc_rev)
+
+        # T5: 분기별 평균의 평균과 전체 평균 차이
+        q_rev_map = _group_sum(st, lambda s: s["분기"],
+                               lambda s: pm[s["상품명"]]["가격"] * s["수량"])
+        q_counts = _group_count(st, lambda s: s["분기"])
+        q_avgs = {q: q_rev_map.get(q, 0) / q_counts.get(q, 1) for q in q_rev_map}
+        avg_of_q_avgs = int(sum(q_avgs.values()) / len(q_avgs)) if q_avgs else 0
+        overall_avg = int(total_rev / len(st)) if st else 0
+        diff_avgs = abs(avg_of_q_avgs - overall_avg)
+
+        # T6 (new): 카테고리 매출 변동계수
+        cat_rev = _group_sum(st, lambda s: pm[s["상품명"]]["카테고리"],
+                             lambda s: pm[s["상품명"]]["가격"] * s["수량"])
+        cat_rev_vals = list(cat_rev.values())
+        cat_rev_mean = sum(cat_rev_vals) / len(cat_rev_vals) if cat_rev_vals else 1
+        cat_rev_sd = _std_dev(cat_rev_vals)
+        cv = int(cat_rev_sd * 100 / cat_rev_mean) if cat_rev_mean > 0 else 0
 
         question_templates = [
             (f"카테고리별 평균 가격의 전체 평균은 얼마입니까? (먼저 카테고리별 평균을 구한 후, 그 평균들의 평균을 구하세요. 소수점 버림)",
@@ -967,30 +1001,26 @@ def generate_conditional_aggregation_problem(
              f"2단계: 카테고리별 평균: {', '.join(f'{k}({v:.0f})' for k,v in cat_avg.items())}\n"
              f"3단계: 평균의 평균 = {avg_of_avgs}\n최종 답: {avg_of_avgs}"),
 
-            # REPLACED T2: 골드 avg-of-avg vs 전체 avg-of-avg
-            (f"골드 등급 고객만의 카테고리별 평균 주문 매출의 평균과, 전체 고객의 카테고리별 평균 주문 매출의 평균 차이는 얼마입니까? (절대값, 소수점 버림)",
-             gold_aoa_diff, 2,
-             f"1단계: 골드 카테고리별 평균: {', '.join(f'{k}({int(v)})' for k,v in gold_cat_avg.items())}\n"
+            (f"골드 고객만의 카테고리별 평균 주문 매출의 평균과 전체 고객의 카테고리별 평균 주문 매출의 평균을 구하세요. 그 절대 차이는 얼마입니까? (카테고리별 평균 = 해당 카테고리 총매출 / 주문 수, 이후 평균, 소수점 버림)",
+             avg_of_avg_diff, 1,
+             f"1단계: 골드 전용 카테고리별 평균 주문 매출: {', '.join(f'{k}({int(v)})' for k,v in gold_cat_avg.items())}\n"
              f"2단계: 골드 평균의 평균 = {gold_avg_of_avg}\n"
-             f"3단계: 전체 카테고리별 평균: {', '.join(f'{k}({int(v)})' for k,v in overall_cat_avg.items())}\n"
+             f"3단계: 전체 카테고리별 평균 주문 매출: {', '.join(f'{k}({int(v)})' for k,v in all_cat_avg_rev.items())}\n"
              f"4단계: 전체 평균의 평균 = {overall_avg_of_avg}\n"
-             f"5단계: 차이 = {gold_aoa_diff}\n최종 답: {gold_aoa_diff}"),
+             f"5단계: 차이 = {avg_of_avg_diff}\n최종 답: {avg_of_avg_diff}"),
 
-            (f"'{tgt_grade}' 등급 고객의 {tgt_q} 매출이 전체 매출의 몇 %입니까? (소수점 버림)",
-             grade_q_pct, 1,
-             f"1단계: '{tgt_grade}' 고객: {len(grade_cids)}명\n"
-             f"2단계: '{tgt_grade}' {tgt_q} 주문: {len(grade_q_orders)}건\n"
-             f"3단계: 매출 = {grade_q_rev}\n"
-             f"4단계: 전체 = {total_rev}\n"
-             f"5단계: 비율 = {grade_q_pct}%\n최종 답: {grade_q_pct}"),
-
-            # REPLACED T4: 분기별 할인 비율 최대 vs 전체 차이
-            (f"분기별 할인 매출 비율(할인매출×100/총매출, 소수점 버림)의 최대값과 전체 할인 매출 비율의 차이는 얼마입니까?",
-             disc_pct_diff, 2,
-             f"1단계: 분기별 할인 비율: {', '.join(f'{k}({v})' for k,v in q_disc_pcts.items())}\n"
+            (f"각 분기별로 정가 매출 대비 할인 매출 비율을 계산하세요(할인가 = 가격×(100-할인율)/100, 항목별 버림). 이 비율이 가장 높은 분기와 전체 할인 매출 비율의 차이는 얼마입니까? (절대값)",
+             disc_pct_diff, 1,
+             f"1단계: 분기별 할인 매출 비율: {', '.join(f'{k}({v})' for k,v in q_disc_ranked)}\n"
              f"2단계: 최대 = {max_q_disc_pct}%\n"
              f"3단계: 전체 할인 비율 = {overall_disc_pct}%\n"
              f"4단계: 차이 = {disc_pct_diff}\n최종 답: {disc_pct_diff}"),
+
+            (f"모든 상품의 할인율이 5%p 낮아진다면(최소 0%), 실제 할인 매출과 가정 할인 매출의 차이는 얼마입니까? (절대값, 할인가 = 가격×(100-할인율)/100 항목별 버림)",
+             counterfactual_diff, 1,
+             f"1단계: 실제 할인 매출 = {actual_disc_rev}\n"
+             f"2단계: 가정(할인율-5%p, 최소 0) 매출 = {counterfactual_rev}\n"
+             f"3단계: 차이 = {counterfactual_diff}\n최종 답: {counterfactual_diff}"),
 
             (f"분기별 주문당 평균 매출의 평균과 전체 주문당 평균 매출의 차이는 얼마입니까? (절대값, 소수점 버림)",
              diff_avgs, 1,
@@ -999,15 +1029,17 @@ def generate_conditional_aggregation_problem(
              f"3단계: 전체 주문당 평균 = {overall_avg}\n"
              f"4단계: 차이 = {diff_avgs}\n최종 답: {diff_avgs}"),
 
-            # REPLACED T6: 카테고리별 매출 변동계수
-            (f"카테고리별 매출의 변동계수(CV)는 얼마입니까? (CV = 표준편차×100/평균, 소수점 버림)",
-             cat_cv, 2,
-             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in cat_rev_ranked)}\n"
-             f"2단계: 평균 = {int(cat_mean)}, 표준편차 = {_std_dev(cat_rev_values)}\n"
-             f"3단계: CV = {cat_cv}\n최종 답: {cat_cv}"),
+            (f"카테고리별 매출의 변동계수는 얼마입니까? (CV = 표준편차 / 평균 × 100, 정수로 버림. 모집단 표준편차 사용)",
+             cv, 1,
+             f"1단계: 카테고리별 매출: {', '.join(f'{k}({v})' for k,v in _rank_groups(cat_rev))}\n"
+             f"2단계: 평균 = {int(cat_rev_mean)}\n"
+             f"3단계: 표준편차 = {int(cat_rev_sd)}\n"
+             f"4단계: CV = {cv}\n최종 답: {cv}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.CONDITIONAL_AGGREGATION.value,
@@ -1124,6 +1156,7 @@ def generate_array_computation_problem(
         total_rev = sum(product_prices[s["상품명"]] * s["수량"] for s in st)
 
         # T1 (REPLACED): 평균 수량 초과 주문의 할인 매출
+        avg_qty = total_rev / len(st) if st else 0
         order_qtys = [s["수량"] for s in st]
         avg_order_qty = sum(order_qtys) / len(order_qtys) if order_qtys else 0
         above_avg_qty_orders = [s for s in st if s["수량"] > avg_order_qty]
@@ -1334,7 +1367,9 @@ def generate_array_computation_problem(
              f"3단계: 차이 = {price_gap}\n최종 답: {price_gap}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.ARRAY_COMPUTATION.value,
@@ -1664,7 +1699,9 @@ def generate_multi_condition_problem(
              f"3단계: 비율 = {gs_bn_ratio}\n최종 답: {gs_bn_ratio}"),
         ]
 
-    question, answer, solution = _weighted_choice(rng, question_templates)
+    question, answer, solution = _weighted_choice(
+        rng, _calibrate_template_weights(config.difficulty, question_templates)
+    )
 
     return {
         "type": ProblemType.MULTI_CONDITION.value,
@@ -1689,6 +1726,16 @@ PROBLEM_GENERATORS = {
 }
 
 
+def _generation_difficulty_for_target(label_difficulty: str, rng: random.Random) -> str:
+    """데이터셋 라벨을 보정된 생성 난이도 혼합으로 매핑."""
+    roll = rng.random()
+    if label_difficulty == "easy":
+        return "medium" if roll < 0.55 else "easy"
+    if label_difficulty == "medium":
+        return "hard" if roll < 0.50 else "medium"
+    return label_difficulty
+
+
 def generate_puzzle(
     difficulty: str = "medium",
     problem_type: Optional[str] = None,
@@ -1699,16 +1746,20 @@ def generate_puzzle(
         seed = random.randint(1, 1000000)
 
     rng = random.Random(seed)
-    config = ArrayFormulaConfig(difficulty=difficulty, seed=seed)
+    requested_difficulty = difficulty
+    generation_difficulty = _generation_difficulty_for_target(requested_difficulty, rng)
+    config = ArrayFormulaConfig(difficulty=generation_difficulty, seed=seed)
 
     if problem_type is None:
         problem_type = rng.choice(list(PROBLEM_GENERATORS.keys()))
 
     generator = PROBLEM_GENERATORS[problem_type]
     puzzle = generator(config, rng)
+    puzzle["generation_difficulty"] = generation_difficulty
+    puzzle["difficulty"] = requested_difficulty
 
     puzzle_hash = hashlib.md5(json.dumps(puzzle, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:8]
-    puzzle["id"] = f"af_ko_{difficulty}_{problem_type}_{puzzle_hash}"
+    puzzle["id"] = f"af_ko_{requested_difficulty}_{problem_type}_{puzzle_hash}"
     puzzle["seed"] = seed
 
     return puzzle

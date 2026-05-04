@@ -201,30 +201,49 @@ class LogicGridGenerator:
     
     def _get_difficulty_config(self, difficulty: Difficulty) -> dict:
         """각 난이도에 대한 설정 가져오기"""
+        # gemini-3-flash-preview 기준 튜닝:
+        #   pass 1: 0.99/0.92/0.72 -> 모든 난이도가 너무 쉬움.
+        #   pass 2: 0.89/0.45/0.21 -> easy는 여전히 쉬움; medium/hard는
+        #           0.50/0.25 목표보다 약간 낮음.
+        #   pass 3: 0.89/0.51/0.16 -> medium은 목표 근처라 easy/hard만 조정.
+        #   pass 4: 0.72/0.57/0.19 -> 모두 범위 안; clue 수만 조정해
+        #           0.75/0.50/0.25 중심으로 이동.
+        #   pass 5: 0.82/0.53/0.41 -> medium은 유지; easy/hard를 목표로 조정.
+        #   pass 6: 0.80/0.58/0.39 -> 모두 목표보다 높음; hard direct anchor를 크게 줄임.
+        #   pass 7: 0.67/0.52/0.13 -> medium은 목표; easy/hard에 단서를 조금 추가.
+        #   pass 8: 0.68/0.52/0.12 -> medium은 고정; easy/hard에 단서 소폭 추가.
         configs = {
             Difficulty.EASY: {
-                'num_people': 3,
-                'num_categories': 3,
-                'categories': ['집색깔', '애완동물', '음료'],
-                'min_constraints': 6,
-                'max_constraints': 8,
-                'direct_ratio': 0.7,  # 70% 직접 제약
-            },
-            Difficulty.MEDIUM: {
-                'num_people': 4,
-                'num_categories': 4,
-                'categories': ['집색깔', '애완동물', '음료', '직업'],
-                'min_constraints': 10,
-                'max_constraints': 12,
-                'direct_ratio': 0.5,  # 50% 직접 제약
-            },
-            Difficulty.HARD: {
+                # 목표 75%: 같은 5x5 그리드; 반복된 0.67-0.68 결과 이후
+                # 가능한 clue를 하나 추가.
                 'num_people': 5,
                 'num_categories': 5,
                 'categories': ['집색깔', '애완동물', '음료', '직업', '취미'],
-                'min_constraints': 15,
+                'min_constraints': 16,
                 'max_constraints': 18,
-                'direct_ratio': 0.3,  # 30% 직접 제약
+                'min_direct_constraints': 6,
+                'max_direct_constraints': 6,
+            },
+            Difficulty.MEDIUM: {
+                # 목표 50%: 같은 그리드; 0.58 결과 이후 anchor 감소.
+                'num_people': 6,
+                'num_categories': 5,
+                'categories': ['집색깔', '애완동물', '음료', '직업', '취미'],
+                'min_constraints': 18,
+                'max_constraints': 20,
+                'min_direct_constraints': 4,
+                'max_direct_constraints': 4,
+            },
+            Difficulty.HARD: {
+                # 목표 25%: 0.12 결과 이후 단서를 추가하되,
+                # 0.39까지 오른 10-11 direct-anchor/44-47 clue 설정보다는 낮게 유지.
+                'num_people': 8,
+                'num_categories': 7,
+                'categories': ['집색깔', '애완동물', '음료', '직업', '취미', '음식', '교통수단'],
+                'min_constraints': 43,
+                'max_constraints': 46,
+                'min_direct_constraints': 10,
+                'max_direct_constraints': 10,
             }
         }
         return configs[difficulty]
@@ -264,7 +283,14 @@ class LogicGridGenerator:
         
         # 필요한 제약 조건 수 계산
         num_constraints = random.randint(config['min_constraints'], config['max_constraints'])
-        direct_count = int(num_constraints * config['direct_ratio'])
+        if 'min_direct_constraints' in config:
+            direct_count = random.randint(
+                config['min_direct_constraints'],
+                config['max_direct_constraints'],
+            )
+            direct_count = min(direct_count, num_constraints)
+        else:
+            direct_count = int(num_constraints * config['direct_ratio'])
         indirect_count = num_constraints - direct_count
         
         # 직접 제약 생성 (예: "민수는 강아지를 키운다")
@@ -304,19 +330,18 @@ class LogicGridGenerator:
                 continue
             
             # 다양한 템플릿으로 제약 생성
-            templates = []
+            templates = [
+                f"{person}은(는) {value}을(를) 가지고 있다",
+                f"{person}은(는) {value}을(를) 가진다",
+                f"{person}의 {category}은(는) {value}이다",
+                f"{value}은(는) {person}의 것이다",
+            ]
             
             if category == '집색깔':
                 templates = [
                     f"{person}은(는) {value} 집에 산다",
                     f"{person}의 집은 {value}이다",
                     f"{value} 집은 {person}의 것이다",
-                ]
-            elif category == '애완동물':
-                templates = [
-                    f"{person}은(는) {value}을(를) 키운다",
-                    f"{person}의 애완동물은 {value}이다",
-                    f"{value}은(는) {person}이(가) 키운다",
                 ]
             elif category == '음료':
                 templates = [
@@ -328,11 +353,6 @@ class LogicGridGenerator:
                     f"{person}은(는) {value}이다",
                     f"{person}의 직업은 {value}이다",
                 ]
-            elif category == '취미':
-                templates = [
-                    f"{person}의 취미는 {value}이다",
-                    f"{person}은(는) {value}을(를) 즐긴다",
-                ]
             elif category == '음식':
                 templates = [
                     f"{person}은(는) {value}을(를) 좋아한다",
@@ -342,11 +362,6 @@ class LogicGridGenerator:
                 templates = [
                     f"{person}은(는) {value}(으)로 출퇴근한다",
                     f"{person}의 교통수단은 {value}이다",
-                ]
-            else:
-                templates = [
-                    f"{person}은(는) {value}을(를) 가지고 있다",
-                    f"{person}의 {category}은(는) {value}이다",
                 ]
             
             constraint = random.choice(templates)
@@ -384,69 +399,38 @@ class LogicGridGenerator:
                 continue
             
             # 제약 생성
-            templates = []
+            templates = [
+                f"{val1} {cat1}을(를) 가진 사람은 {val2}을(를) 가지고 있다",
+                f"{val1}을(를) 가진 사람은 {val2}도 가지고 있다",
+                f"{val1} {cat1}을(를) 가진 사람은 {val2} {cat2}을(를) 가진다",
+            ]
             
             if cat1 == '집색깔':
-                if cat2 == '애완동물':
-                    templates = [
-                        f"{val1} 집에 사는 사람은 {val2}을(를) 키운다",
-                        f"{val2}을(를) 키우는 사람은 {val1} 집에 산다",
-                    ]
-                elif cat2 == '음료':
-                    templates = [
-                        f"{val1} 집에 사는 사람은 {val2}을(를) 마신다",
-                        f"{val2}을(를) 마시는 사람은 {val1} 집에 산다",
-                    ]
-                elif cat2 == '직업':
-                    templates = [
-                        f"{val1} 집 주인은 {val2}이다",
-                        f"{val2}인 사람은 {val1} 집에 산다",
-                    ]
-                elif cat2 == '취미':
-                    templates = [
-                        f"{val1} 집에 사는 사람의 취미는 {val2}이다",
-                        f"{val2}을(를) 좋아하는 사람은 {val1} 집에 산다",
-                    ]
-            elif cat1 == '애완동물' and cat2 == '음료':
                 templates = [
-                    f"{val1}을(를) 키우는 사람은 {val2}을(를) 마신다",
-                    f"{val2}을(를) 마시는 사람은 {val1}을(를) 키운다",
-                ]
-            elif cat1 == '애완동물' and cat2 == '직업':
-                templates = [
-                    f"{val2}인 사람은 {val1}을(를) 키운다",
-                    f"{val1}을(를) 키우는 사람은 {val2}이다",
-                ]
-            elif cat1 == '음료' and cat2 == '직업':
-                templates = [
-                    f"{val2}인 사람은 {val1}을(를) 마신다",
-                    f"{val1}을(를) 마시는 사람은 {val2}이다",
+                    f"{val1} 집에 사는 사람은 {val2}을(를) 가지고 있다",
+                    f"{val1} 집 주인은 {val2} {cat2}을(를) 가진다",
                 ]
             elif cat1 == '음식':
                 templates = [
-                    f"{val1}을(를) 좋아하는 사람은 {val2}을(를) 가지고 있다",
-                    f"{val1}을(를) 좋아하는 사람의 {cat2}은(는) {val2}이다",
+                    f"{val1}을(를) 좋아하는 사람은 {val2} {cat2}을(를) 가진다",
+                    f"{val1}을(를) 좋아하는 사람은 {val2} {cat2}의 소유자이다",
                 ]
             elif cat1 == '교통수단':
                 templates = [
                     f"{val1}(으)로 출퇴근하는 사람은 {val2}을(를) 가지고 있다",
-                    f"{val1}(으)로 출퇴근하는 사람의 {cat2}은(는) {val2}이다",
-                ]
-            else:
-                templates = [
-                    f"{val1}을(를) 가진 사람은 {val2}도 가지고 있다",
-                    f"{val2}인 사람은 {val1}이기도 하다",
+                    f"{val1} 통근자는 {val2} {cat2}을(를) 가진다",
                 ]
 
-            if cat2 == '음식':
+            if cat2 == '음료':
+                templates.append(f"{val1} {cat1}을(를) 가진 사람은 {val2}을(를) 마신다")
+            elif cat2 == '음식':
                 templates.append(f"{val1}을(를) 가진 사람은 {val2}을(를) 좋아한다")
             elif cat2 == '교통수단':
                 templates.append(f"{val1}을(를) 가진 사람은 {val2}(으)로 출퇴근한다")
             
-            if templates:
-                constraint = random.choice(templates)
-                constraints.append(constraint)
-                used_links.add(link)
+            constraint = random.choice(templates)
+            constraints.append(constraint)
+            used_links.add(link)
         
         return constraints
     

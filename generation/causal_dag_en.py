@@ -65,6 +65,9 @@ class CausalPuzzle:
     target_event: str
     answer: int
     difficulty: str
+    query_type: str = 'occurrence_time'
+    compare_event: Optional[str] = None
+    shuffle_edges: bool = False
     
     def to_dict(self):
         """Convert to dictionary for JSON serialization"""
@@ -86,7 +89,10 @@ class CausalPuzzle:
             'trigger_time': self.trigger_time,
             'target': self.target_event,
             'answer': self.answer,
-            'difficulty': self.difficulty
+            'difficulty': self.difficulty,
+            'query_type': self.query_type,
+            'compare_event': self.compare_event,
+            'shuffle_edges': self.shuffle_edges,
         }
 
 
@@ -160,28 +166,51 @@ class CausalPuzzleGenerator:
         if seed is not None:
             random.seed(seed)
         
-        # Difficulty configuration (calibrated for gpt-4o ~70/40/10%)
+        # Difficulty configuration calibrated from gemini-3-flash-preview runs.
+        # The main difficulty levers are: shuffled presentation, alternative
+        # causal rules, deeper targets, and query types that require broader
+        # propagation than a single target path.
         config = {
             'easy': {
-                'num_events': random.randint(18, 22),
-                'edge_density': 0.50,
-                'delay_range': (15, 80),
+                'num_events': random.randint(25, 31),
+                'edge_density': 0.62,
+                'delay_range': (10, 60),
                 'max_out_degree': 3,
-                'and_probability': 0.4,  # 40% AND conditions
+                'and_probability': 0.47,
+                'target_quantile': (0.56, 0.86),
+                'query_weights': {
+                    'occurrence_time': 0.30,
+                    'time_gap': 0.25,
+                    'count_by_target_time': 0.45,
+                },
+                'shuffle_edges': True,
             },
             'medium': {
-                'num_events': random.randint(45, 55),
-                'edge_density': 0.70,
-                'delay_range': (30, 150),
-                'max_out_degree': 5,
-                'and_probability': 0.92,  # 92% AND conditions
+                'num_events': random.randint(38, 44),
+                'edge_density': 0.84,
+                'delay_range': (20, 140),
+                'max_out_degree': 4,
+                'and_probability': 0.60,
+                'target_quantile': (0.66, 0.92),
+                'query_weights': {
+                    'occurrence_time': 0.05,
+                    'time_gap': 0.25,
+                    'count_by_target_time': 0.70,
+                },
+                'shuffle_edges': True,
             },
             'hard': {
-                'num_events': random.randint(80, 100),
-                'edge_density': 0.80,
-                'delay_range': (50, 250),
-                'max_out_degree': 7,
-                'and_probability': 0.99,  # 99% AND conditions
+                'num_events': random.randint(46, 58),
+                'edge_density': 0.95,
+                'delay_range': (30, 240),
+                'max_out_degree': 5,
+                'and_probability': 0.64,
+                'target_quantile': (0.64, 0.94),
+                'query_weights': {
+                    'time_gap': 0.20,
+                    'count_by_target_time': 0.80,
+                },
+                'shuffle_edges': True,
             }
         }[difficulty]
         
@@ -211,26 +240,18 @@ class CausalPuzzleGenerator:
                 # Calculate reach times
                 reach_times = self._calculate_reach_times(events, edges, trigger, trigger_time)
                 
-                # Select target (reachable event, not trigger)
+                # Select target/query (reachable event, not trigger)
                 reachable = [e_id for e_id, time in reach_times.items() 
                            if time < float('inf') and e_id != trigger]
                 
                 if not reachable:
                     continue
                 
-                # Prefer events that are not too close or too far
-                target_candidates = sorted(reachable, 
-                                         key=lambda e: reach_times[e])
-                
-                # Pick from middle range for better difficulty
-                mid_start = len(target_candidates) // 3
-                mid_end = 2 * len(target_candidates) // 3
-                if mid_end > mid_start:
-                    target_event = random.choice(target_candidates[mid_start:mid_end])
-                else:
-                    target_event = random.choice(target_candidates)
-                
-                answer = reach_times[target_event]
+                query_type, target_event, answer, compare_event = self._select_query(
+                    reachable,
+                    reach_times,
+                    config
+                )
                 
                 return CausalPuzzle(
                     events=events,
@@ -239,7 +260,10 @@ class CausalPuzzleGenerator:
                     trigger_time=trigger_time,
                     target_event=target_event,
                     answer=answer,
-                    difficulty=difficulty
+                    difficulty=difficulty,
+                    query_type=query_type,
+                    compare_event=compare_event,
+                    shuffle_edges=config.get('shuffle_edges', False),
                 )
             
             except Exception as e:
@@ -247,6 +271,57 @@ class CausalPuzzleGenerator:
         
         # If all attempts fail, generate simple linear chain
         return self._generate_simple_puzzle(difficulty)
+
+    def _weighted_choice(self, weights: Dict[str, float]) -> str:
+        """Choose a key from a small weight dictionary."""
+        total = sum(weights.values())
+        threshold = random.random() * total
+        cumulative = 0.0
+        for key, weight in weights.items():
+            cumulative += weight
+            if threshold <= cumulative:
+                return key
+        return next(reversed(weights))
+
+    def _select_query(
+        self,
+        reachable: List[str],
+        reach_times: Dict[str, int],
+        config: Dict,
+    ) -> Tuple[str, str, int, Optional[str]]:
+        """Select the question type and compute the corresponding answer."""
+        target_candidates = sorted(reachable, key=lambda e: (reach_times[e], e))
+        q_start, q_end = config.get('target_quantile', (1 / 3, 2 / 3))
+        start_idx = int(len(target_candidates) * q_start)
+        end_idx = max(start_idx + 1, int(len(target_candidates) * q_end))
+        target_pool = target_candidates[start_idx:end_idx] or target_candidates
+        target_event = random.choice(target_pool)
+        query_type = self._weighted_choice(config.get('query_weights', {'occurrence_time': 1.0}))
+
+        if query_type == 'time_gap':
+            earlier = [
+                e for e in target_candidates
+                if e != target_event and reach_times[e] < reach_times[target_event]
+            ]
+            if earlier:
+                compare_event = random.choice(earlier)
+                answer = reach_times[target_event] - reach_times[compare_event]
+                return query_type, target_event, int(answer), compare_event
+            query_type = 'occurrence_time'
+
+        if query_type == 'count_by_target_time':
+            cutoff = reach_times[target_event]
+            answer = sum(
+                1 for time in reach_times.values()
+                if time < float('inf') and time <= cutoff
+            )
+            return query_type, target_event, int(answer), None
+
+        if query_type == 'latest_event_time':
+            target_event = max(target_candidates, key=lambda e: (reach_times[e], e))
+            return query_type, target_event, int(reach_times[target_event]), None
+
+        return 'occurrence_time', target_event, int(reach_times[target_event]), None
     
     def _generate_events(self, num_events: int) -> Dict[str, Event]:
         """Generate event nodes"""
@@ -282,46 +357,46 @@ class CausalPuzzleGenerator:
         edges = []
         event_ids = sorted(events.keys())
         and_prob = config.get('and_probability', 0.0)
+        extra_edge_rate = config.get('edge_density', 0.0)
         
         # Create edges for each target node
         for i, to_id in enumerate(event_ids):
             if i == 0:
                 continue  # Skip first node (trigger candidate)
-            
-            # Determine number of prerequisites
-            max_prereqs = min(config['max_out_degree'], i)
-            num_prereqs = random.randint(1, max(1, max_prereqs))
-            
-            # Select prerequisite events (from earlier nodes)
+
+            # Select prerequisite events (from earlier nodes only to preserve DAG)
             possible_from = event_ids[:i]
             if not possible_from:
                 continue
-            
-            from_events = random.sample(possible_from, min(num_prereqs, len(possible_from)))
-            
-            # Determine condition type
-            condition = 'OR'
-            if len(from_events) > 1 and random.random() < and_prob:
-                condition = 'AND'
-            
-            delay = random.randint(*config['delay_range'])
-            
-            # Create edge
-            if len(from_events) == 1:
+
+            base_extra = int(extra_edge_rate)
+            fractional_extra = 1 if random.random() < (extra_edge_rate - base_extra) else 0
+            rules_for_target = 1 + base_extra + fractional_extra
+            seen_prereq_sets: Set[Tuple[str, ...]] = set()
+
+            for _ in range(rules_for_target):
+                max_prereqs = min(config['max_out_degree'], len(possible_from))
+                num_prereqs = random.randint(1, max(1, max_prereqs))
+                from_events = tuple(sorted(
+                    random.sample(possible_from, min(num_prereqs, len(possible_from)))
+                ))
+
+                # Avoid exact duplicate prerequisite sets for the same target.
+                if from_events in seen_prereq_sets and len(seen_prereq_sets) < len(possible_from):
+                    continue
+                seen_prereq_sets.add(from_events)
+
+                condition = 'OR'
+                if len(from_events) > 1 and random.random() < and_prob:
+                    condition = 'AND'
+
+                delay = random.randint(*config['delay_range'])
                 edges.append(CausalEdge(
                     from_event=from_events[0],
                     to_event=to_id,
                     delay=delay,
-                    from_events=from_events,
-                    condition='OR'
-                ))
-            else:
-                edges.append(CausalEdge(
-                    from_event=from_events[0],  # For compatibility
-                    to_event=to_id,
-                    delay=delay,
-                    from_events=from_events,
-                    condition=condition
+                    from_events=list(from_events),
+                    condition=condition if len(from_events) > 1 else 'OR'
                 ))
         
         return edges
@@ -344,21 +419,13 @@ class CausalPuzzleGenerator:
         Returns:
             Dictionary mapping event_id -> earliest occurrence time
         """
-        # Build prerequisite tracking
-        prereqs_for_event = {}
-        edges_for_event = {}
-        
-        for edge in edges:
-            from_events = edge.from_events if edge.from_events else [edge.from_event]
-            prereqs_for_event[edge.to_event] = from_events
-            edges_for_event[edge.to_event] = edge
-        
         # Track earliest time each event occurs
         earliest_time = {e_id: float('inf') for e_id in events}
         earliest_time[trigger] = trigger_time
         
-        # Track when each prerequisite reaches an event
-        prereq_arrival_times = {e_id: {} for e_id in events}
+        # Track prerequisite arrivals per causal rule. Multiple alternative
+        # rules can point to the same event and may have different delays.
+        prereq_arrival_times = {idx: {} for idx in range(len(edges))}
         
         # Priority queue: (time, event_id)
         pq = [(trigger_time, trigger)]
@@ -372,27 +439,28 @@ class CausalPuzzleGenerator:
             processed.add(current_event)
             
             # Find all events that depend on current_event
-            for edge in edges:
+            for edge_idx, edge in enumerate(edges):
                 from_events = edge.from_events if edge.from_events else [edge.from_event]
                 if current_event not in from_events:
                     continue
                 
                 to_event = edge.to_event
                 arrival_time = current_time + edge.delay
+                arrivals = prereq_arrival_times[edge_idx]
                 
                 # Record this prerequisite's arrival time
-                if current_event not in prereq_arrival_times[to_event]:
-                    prereq_arrival_times[to_event][current_event] = arrival_time
+                if current_event not in arrivals:
+                    arrivals[current_event] = arrival_time
                 else:
                     # Keep earliest arrival from this prerequisite
-                    prereq_arrival_times[to_event][current_event] = min(
-                        prereq_arrival_times[to_event][current_event],
+                    arrivals[current_event] = min(
+                        arrivals[current_event],
                         arrival_time
                     )
                 
                 # Check if all prerequisites have arrived
                 all_prereqs_arrived = all(
-                    prereq in prereq_arrival_times[to_event]
+                    prereq in arrivals
                     for prereq in from_events
                 )
                 
@@ -401,13 +469,13 @@ class CausalPuzzleGenerator:
                     if edge.condition == 'AND':
                         # Wait for ALL prerequisites
                         trigger_time_for_event = max(
-                            prereq_arrival_times[to_event][prereq]
+                            arrivals[prereq]
                             for prereq in from_events
                         )
                     else:  # OR
                         # Trigger on FIRST prerequisite
                         trigger_time_for_event = min(
-                            prereq_arrival_times[to_event][prereq]
+                            arrivals[prereq]
                             for prereq in from_events
                         )
                     
@@ -467,8 +535,8 @@ class CausalPuzzleGenerator:
         return reach_times[puzzle.target_event] < float('inf')
 
 
-def create_question(puzzle: CausalPuzzle) -> str:
-    """Generate English question text for the puzzle"""
+def create_question(puzzle: CausalPuzzle, shuffle_edges: Optional[bool] = None) -> str:
+    """Generate English question text for the puzzle."""
     
     # Format events
     event_lines = []
@@ -481,7 +549,13 @@ def create_question(puzzle: CausalPuzzle) -> str:
     
     # Format causal relationships
     causal_lines = []
-    sorted_edges = sorted(puzzle.edges, key=lambda e: e.to_event)
+    if shuffle_edges is None:
+        shuffle_edges = puzzle.shuffle_edges
+    if shuffle_edges:
+        sorted_edges = list(puzzle.edges)
+        random.shuffle(sorted_edges)
+    else:
+        sorted_edges = sorted(puzzle.edges, key=lambda e: e.to_event)
     
     for edge in sorted_edges:
         from_events = edge.from_events if edge.from_events else [edge.from_event]
@@ -510,6 +584,35 @@ def create_question(puzzle: CausalPuzzle) -> str:
     
     trigger_name = puzzle.events[puzzle.trigger].name
     target_name = puzzle.events[puzzle.target_event].name
+    compare_line = ""
+    answer_instruction = "Provide your answer as a single integer."
+    if puzzle.query_type == 'time_gap' and puzzle.compare_event:
+        compare_name = puzzle.events[puzzle.compare_event].name
+        question_line = (
+            f"How many minutes after event {puzzle.compare_event} ({compare_name}) "
+            f"first occurs does event {puzzle.target_event} ({target_name}) first occur?"
+        )
+        compare_line = (
+            f"- Compare event: {puzzle.compare_event} ({compare_name}); compute both event times, "
+            "then subtract the compare event time from the target event time.\n"
+        )
+    elif puzzle.query_type == 'count_by_target_time':
+        question_line = (
+            f"By the time event {puzzle.target_event} ({target_name}) first occurs, "
+            "how many distinct listed events have occurred? Include the initial event and "
+            "the target event in the count."
+        )
+    elif puzzle.query_type == 'latest_event_time':
+        question_line = (
+            "At what minute does the last reachable listed event first occur after the "
+            "initial condition propagates through the graph?"
+        )
+        answer_instruction = "Provide your answer as a single integer minute."
+    else:
+        question_line = (
+            f"At what minute does event {puzzle.target_event} ({target_name}) first occur?"
+        )
+        answer_instruction = "Provide your answer as a single integer minute."
     
     question = f"""You are analyzing a system of causal events and their propagation over time.
 
@@ -527,12 +630,13 @@ Rules:
 
 Initial Condition:
 - Event {puzzle.trigger} ({trigger_name}) occurs at minute {puzzle.trigger_time}
+{compare_line}
 
 Question:
-At what minute does event {puzzle.target_event} ({target_name}) first occur?
+{question_line}
 
-Provide your answer as a single integer representing the minute number.
-For example, if the event occurs 45 minutes after the start, answer: 45
+{answer_instruction}
+For example, if the requested value is 45, answer: 45
 """
     
     return question
@@ -550,7 +654,7 @@ def generate_dataset(puzzles_per_difficulty: int = 3, verbose: bool = True) -> L
         List of puzzle dictionaries ready for evaluation
     """
     generator = CausalPuzzleGenerator()
-    difficulties = ['Easy', 'Medium', 'Hard']
+    difficulties = ['easy', 'medium', 'hard']
     dataset = []
     
     for difficulty in difficulties:
@@ -594,7 +698,7 @@ def _reach_time_trace_en(puzzle: CausalPuzzle) -> tuple:
 
     earliest = {eid: float('inf') for eid in events}
     earliest[trigger] = trigger_time
-    prereq_arrival: Dict[str, Dict[str, int]] = {eid: {} for eid in events}
+    prereq_arrival: Dict[int, Dict[str, int]] = {idx: {} for idx in range(len(edges))}
     resolver: Dict[str, CausalEdge] = {}
 
     pq = [(trigger_time, trigger)]
@@ -604,12 +708,12 @@ def _reach_time_trace_en(puzzle: CausalPuzzle) -> tuple:
         if ce in processed:
             continue
         processed.add(ce)
-        for edge in edges:
+        for edge_idx, edge in enumerate(edges):
             fes = edge.from_events if edge.from_events else [edge.from_event]
             if ce not in fes:
                 continue
             at = ct + edge.delay
-            pa = prereq_arrival[edge.to_event]
+            pa = prereq_arrival[edge_idx]
             if ce not in pa or at < pa[ce]:
                 pa[ce] = at
             if all(p in pa for p in fes):
@@ -683,18 +787,46 @@ def _reach_time_trace_en(puzzle: CausalPuzzle) -> tuple:
 
 
 def _build_causal_dag_solution_en(puzzle: CausalPuzzle) -> str:
-    """SFT teacher trace: propagation rules and target minute."""
+    """SFT teacher trace: propagation rules and requested integer answer."""
     n_ev = len(puzzle.events)
     n_ed = len(puzzle.edges)
     trace_lines, smry = _reach_time_trace_en(puzzle)
+    reach_times = CausalPuzzleGenerator()._calculate_reach_times(
+        puzzle.events,
+        puzzle.edges,
+        puzzle.trigger,
+        puzzle.trigger_time,
+    )
+    target_time = reach_times[puzzle.target_event]
+    if puzzle.query_type == 'time_gap' and puzzle.compare_event:
+        compare_time = reach_times[puzzle.compare_event]
+        query_note = (
+            f"  - Query: time gap from {puzzle.compare_event} "
+            f"(t={compare_time}) to {puzzle.target_event} (t={target_time})"
+        )
+        answer_label = "Final answer (minutes between events)"
+    elif puzzle.query_type == 'count_by_target_time':
+        query_note = (
+            f"  - Query: count events with occurrence time <= "
+            f"{puzzle.target_event}'s time t={target_time}"
+        )
+        answer_label = "Final answer (event count)"
+    elif puzzle.query_type == 'latest_event_time':
+        query_note = "  - Query: latest first-occurrence time among reachable listed events"
+        answer_label = "Final answer (minutes)"
+    else:
+        query_note = f"  - Query: first occurrence time of {puzzle.target_event}"
+        answer_label = "Final answer (minutes)"
     head = [
         SFT_SOLUTION_RUBRIC_EN,
         "[STEP 0] Problem meta",
         f"  - Difficulty: {puzzle.difficulty}",
         f"  - Trigger event: {puzzle.trigger} (at t = {puzzle.trigger_time} min)",
         f"  - Target event: {puzzle.target_event}",
+        f"  - Query type: {puzzle.query_type}",
+        query_note,
         f"  - Graph size: {n_ev} events, {n_ed} edges",
-        "  - The final integer minute is only stated in [STEP 3] (verification); "
+        "  - The final requested integer is only stated in [STEP 3] (verification); "
         "follow the SEG log in [STEP 2] first.",
         "[STEP 1] Given (time propagation and graph rules, as in the prompt)",
         "  - Each edge has a delay; a downstream event can fire after its "
@@ -713,7 +845,7 @@ def _build_causal_dag_solution_en(puzzle: CausalPuzzle) -> str:
     ]
     tail = [
         "[STEP 3] Answer and verification",
-        f"  - Final answer (minutes): {puzzle.answer}",
+        f"  - {answer_label}: {puzzle.answer}",
         "  - Re-run the priority-queue propagation from "
         f"{puzzle.trigger} at {puzzle.trigger_time}; "
         "check max(prereqs)+delay at AND nodes and min(prereqs)+delay at OR nodes.",

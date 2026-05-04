@@ -46,30 +46,30 @@ class CryptarithmeticEvaluator(BaseEvaluator):
     """
 
     SYSTEM_PROMPT = """### Instructions
-You are an expert puzzle solver specializing in cryptarithmetic problems.
-Solve the puzzle and provide your answer in the format below.
+You are an expert at cryptarithmetic (alphametic) puzzles.
 
 ### Rules
-- Each letter represents a unique digit (0-9)
-- Different letters must map to different digits
-- Leading letters cannot be zero
-- '*' represents an unknown letter that could be any letter
+1. Map each distinct letter to a unique digit 0–9; leading letters of any word cannot be zero.
+2. Treat '*' as an unknown letter slot that may stand for any consistent letter; preserve all arithmetic constraints in the puzzle.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-Answer: [number]"""
+Your final line must be:
+Answer: [number]
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 암호산술(숫자 맞추기) 퍼즐 전문가입니다.
-퍼즐을 풀고 아래 형식으로만 답하세요.
+당신은 암호산술(숫자 맞추기) 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-- 각 글자는 서로 다른 숫자(0-9)를 나타냅니다
-- 서로 다른 글자는 서로 다른 숫자여야 합니다
-- 맨 앞 글자는 0이 될 수 없습니다
-- '*'는 알 수 없는 글자로, 어떤 글자든 될 수 있습니다
+1. 서로 다른 글자는 서로 다른 숫자(0–9); 각 단어의 맨 앞 글자는 0이 될 수 없습니다.
+2. '*'는 알 수 없는 글자 자리로, 지문과 산술 제약에 맞게 일관되게 해석하세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-Answer: [숫자]"""
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: [숫자]
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""

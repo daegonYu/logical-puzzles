@@ -50,8 +50,8 @@ class LiteLLMClient(BaseLLMClient):
             params["top_k"] = self.gen_kwargs["top_k"]
         if "reasoning_effort" in self.gen_kwargs:
             params["reasoning_effort"] = self.gen_kwargs["reasoning_effort"]
-            # Vertex / Gemini thinking: matches scripts/calltest_vertex.py
-            params["allowed_openai_params"] = ["reasoning_effort"]
+            # # Vertex / Gemini thinking: matches scripts/calltest_vertex.py
+            # params["allowed_openai_params"] = ["reasoning_effort"]
         return params
 
     @staticmethod

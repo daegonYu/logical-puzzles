@@ -211,7 +211,7 @@ class SATPuzzleGenerator:
         if seed is not None:
             random.seed(seed)
     
-    def generate(self, difficulty: Difficulty, max_retries: int = 10) -> SATPuzzle:
+    def generate(self, difficulty: Difficulty, max_retries: int = 100) -> SATPuzzle:
         """Generate a SAT puzzle of specified difficulty"""
         config = self._get_difficulty_config(difficulty)
         
@@ -229,9 +229,7 @@ class SATPuzzleGenerator:
             if self._verify_unique_solution(variables, clauses, solution, config):
                 break
         else:
-            # After max retries, accept the current solution
-            # This is acceptable for benchmarking purposes
-            pass
+            raise RuntimeError(f"Failed to generate a unique {difficulty.value} SAT puzzle")
         
         # Convert to natural language
         natural_constraints = self._clauses_to_natural_language(clauses, domain)
@@ -247,7 +245,7 @@ class SATPuzzleGenerator:
             variables=variables,
             clauses=clauses,
             natural_constraints=natural_constraints,
-            question="",  # Temporary placeholder
+            question=self.DOMAINS[domain]['question_template'],
             answer=solution
         )
         
@@ -261,25 +259,34 @@ class SATPuzzleGenerator:
         """Get configuration parameters for each difficulty level"""
         configs = {
             Difficulty.EASY: {
-                'num_vars': random.randint(3, 4),
-                'clauses_per_var': 1.2,
-                'clause_length': (2, 2),  # (min, max) literals per clause
-                'negation_ratio': 0.3,
-                'min_clauses': 3,
+                # Target: ~75%. Previous setting scored 83%, so nudge the state
+                # space up while keeping prompts shorter than medium.
+                'num_vars': random.randint(9, 10),
+                'min_clauses': 36,
+                'max_clauses': 58,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.52,
             },
             Difficulty.MEDIUM: {
-                'num_vars': random.randint(5, 7),
-                'clauses_per_var': 1.8,
-                'clause_length': (2, 3),
-                'negation_ratio': 0.5,
-                'min_clauses': 8,
+                # Target: ~50%. Previous setting scored 46%, so keep 11 variables
+                # but trim noise slightly to recover a few points.
+                'num_vars': 11,
+                'min_clauses': 56,
+                'max_clauses': 88,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.54,
             },
             Difficulty.HARD: {
-                'num_vars': random.randint(10, 12),
-                'clauses_per_var': 2.2,
-                'clause_length': (2, 4),
-                'negation_ratio': 0.7,
-                'min_clauses': 20,
+                # Target: ~25%. The 14-variable / 130+ clause setting scored 16%,
+                # so keep the variable count and trim clause noise slightly.
+                'num_vars': 14,
+                'min_clauses': 115,
+                'max_clauses': 170,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.57,
             }
         }
         return configs[difficulty]
@@ -303,68 +310,71 @@ class SATPuzzleGenerator:
         solution: Dict[str, bool],
         config: dict
     ) -> List[SATClause]:
-        """Generate CNF clauses that are satisfied by the solution"""
-        num_clauses = max(
-            config['min_clauses'],
-            int(len(variables) * config['clauses_per_var'])
-        )
-        
-        clauses = []
+        """Generate random satisfied CNF clauses with a unique target solution."""
+        clauses: List[SATClause] = []
         used_clauses = set()
-        
-        attempts = 0
-        max_attempts = num_clauses * 100
-        
-        while len(clauses) < num_clauses and attempts < max_attempts:
-            attempts += 1
-            
-            # Generate clause length
-            min_len, max_len = config['clause_length']
-            clause_len = random.randint(min_len, min(max_len, len(variables)))
-            
-            # Select variables for this clause
-            selected_vars = random.sample(variables, clause_len)
-            
-            # Create literals ensuring the clause is satisfied
-            # Strategy: Make at least one literal true based on solution
-            literals = []
-            
-            # First, add at least one TRUE literal to ensure clause is satisfied
-            true_var = random.choice(selected_vars)
-            true_literal_positive = solution[true_var]
-            literals.append((true_var, true_literal_positive))
-            
-            # Add remaining literals randomly
-            for var in selected_vars:
-                if var == true_var:
-                    continue
-                    
-                # Random decision on negation
-                if random.random() < config['negation_ratio']:
-                    # Negate: if solution[var]=True, use NOT var (False)
-                    is_positive = False
-                else:
-                    # Don't negate: use var as-is
-                    is_positive = True
-                
-                literals.append((var, is_positive))
-            
-            # Shuffle to avoid pattern
-            random.shuffle(literals)
-            
-            # Verify clause is satisfied (should always be true now)
-            if not self._eval_clause(literals, solution):
-                continue
-            
-            # Avoid duplicate clauses
+
+        def append_clause(literals: List[Tuple[str, bool]]) -> bool:
             clause_sig = tuple(sorted(literals))
             if clause_sig in used_clauses:
-                continue
-            
+                return False
+            if not self._eval_clause(literals, solution):
+                return False
             used_clauses.add(clause_sig)
             clauses.append(SATClause(literals=literals))
+            return True
+
+        attempts = 0
+        max_attempts = config['max_clauses'] * 500
+
+        while attempts < max_attempts and len(clauses) < config['max_clauses']:
+            attempts += 1
+            literals = self._generate_random_satisfied_clause(variables, solution, config)
+            append_clause(literals)
+            if len(clauses) >= config['min_clauses'] and self._count_solutions(variables, clauses, stop_after=2) == 1:
+                break
         
         return clauses
+
+    def _solution_literal(self, var: str, solution: Dict[str, bool]) -> Tuple[str, bool]:
+        """Return the literal that is true for var under the target solution."""
+        return (var, solution[var])
+
+    def _negate_literal(self, literal: Tuple[str, bool]) -> Tuple[str, bool]:
+        """Return the logical negation of a literal."""
+        var, is_positive = literal
+        return (var, not is_positive)
+
+    def _generate_random_satisfied_clause(
+        self,
+        variables: List[str],
+        solution: Dict[str, bool],
+        config: dict,
+    ) -> List[Tuple[str, bool]]:
+        """Generate one random clause that is satisfied by the target solution."""
+        min_len, max_len = config['clause_length']
+        if random.random() < config['unit_clause_rate']:
+            clause_len = 1
+        else:
+            clause_len = random.randint(min_len, min(max_len, len(variables)))
+
+        selected_vars = random.sample(variables, clause_len)
+        literals = []
+        has_true_literal = False
+
+        for var in selected_vars:
+            is_positive = not solution[var] if random.random() < config['negation_ratio'] else solution[var]
+            if self._eval_literal(var, is_positive, solution):
+                has_true_literal = True
+            literals.append((var, is_positive))
+
+        if not has_true_literal:
+            idx = random.randrange(len(literals))
+            var, _ = literals[idx]
+            literals[idx] = self._solution_literal(var, solution)
+
+        random.shuffle(literals)
+        return literals
     
     def _eval_literal(self, var: str, is_positive: bool, solution: Dict[str, bool]) -> bool:
         """Evaluate a literal given the solution"""
@@ -375,6 +385,27 @@ class SATPuzzleGenerator:
         """Evaluate a clause (OR of literals)"""
         return any(self._eval_literal(var, is_pos, solution) 
                   for var, is_pos in literals)
+
+    def _count_solutions(
+        self,
+        variables: List[str],
+        clauses: List[SATClause],
+        stop_after: Optional[int] = None,
+    ) -> int:
+        """Count satisfying assignments, optionally stopping early."""
+        num_solutions = 0
+
+        for i in range(2 ** len(variables)):
+            assignment = {}
+            for j, var in enumerate(variables):
+                assignment[var] = bool((i >> j) & 1)
+
+            if all(self._eval_clause(clause.literals, assignment) for clause in clauses):
+                num_solutions += 1
+                if stop_after is not None and num_solutions >= stop_after:
+                    return num_solutions
+
+        return num_solutions
     
     def _verify_unique_solution(
         self,
@@ -385,36 +416,10 @@ class SATPuzzleGenerator:
     ) -> bool:
         """
         Verify that the clauses lead to a unique solution.
-        Simplified brute-force check for small problems.
-        In production, use a proper SAT solver with solution counting.
+        Brute-force solution counting is feasible because calibrated SAT puzzles
+        are capped at fourteen variables.
         """
-        # For larger problems, skip verification (too slow)
-        # Accept the solution as-is for benchmarking
-        if len(variables) > 6:
-            return True
-        
-        # Brute force: try all possible assignments
-        num_solutions = 0
-        
-        for i in range(2 ** len(variables)):
-            # Generate assignment from binary representation
-            assignment = {}
-            for j, var in enumerate(variables):
-                assignment[var] = bool((i >> j) & 1)
-            
-            # Check if all clauses are satisfied
-            satisfied = True
-            for clause in clauses:
-                if not self._eval_clause(clause.literals, assignment):
-                    satisfied = False
-                    break
-            
-            if satisfied:
-                num_solutions += 1
-                if num_solutions > 1:
-                    return False  # Multiple solutions
-        
-        return num_solutions == 1
+        return self._count_solutions(variables, clauses, stop_after=2) == 1
     
     def _clauses_to_natural_language(
         self,
@@ -550,9 +555,11 @@ def generate_dataset(
             "answer": p.answer,
             "solution": _build_sat_solution_en(p),
             "difficulty": p.difficulty,
+            "variables": p.variables,
+            "clauses": [[[lit[0], lit[1]] for lit in clause.literals] for clause in p.clauses],
         }
 
-    # JSONL (5 fields)
+    # JSONL
     jsonl_path = json_dir / "sat_puzzles_en.jsonl"
     with open(jsonl_path, 'w', encoding="utf-8") as f:
         for puzzle in puzzles:
@@ -562,12 +569,14 @@ def generate_dataset(
     import csv as csv_module
     csv_path = csv_dir / "sat_puzzles_en.csv"
     with open(csv_path, 'w', encoding='utf-8', newline='') as f:
-        fieldnames = ['id', 'question', 'answer', 'solution', 'difficulty']
+        fieldnames = ['id', 'question', 'answer', 'solution', 'difficulty', 'variables', 'clauses']
         writer = csv_module.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for puzzle in puzzles:
             r = _row(puzzle)
             r["answer"] = json.dumps(r["answer"], ensure_ascii=False)
+            r["variables"] = json.dumps(r["variables"], ensure_ascii=False)
+            r["clauses"] = json.dumps(r["clauses"], ensure_ascii=False)
             writer.writerow(r)
     
     print(f"   - JSONL: {jsonl_path}")
@@ -612,7 +621,7 @@ def main():
             print(f"\n{'='*70}")
             print(f"{difficulty.upper()} EXAMPLE")
             print(f"{'='*70}")
-            print(puzzle.to_prompt())
+            print(puzzle.question)
             print(f"✅ **Correct Answer:**")
             for var, value in puzzle.answer.items():
                 print(f"   {var}: {value}")

@@ -201,30 +201,54 @@ class LogicGridGenerator:
     
     def _get_difficulty_config(self, difficulty: Difficulty) -> dict:
         """Get configuration for each difficulty level"""
+        # Tuned against gemini-3-flash-preview baseline:
+        #   pass 1: 0.99/0.92/0.72 -> all tiers were too easy.
+        #   pass 2: 0.89/0.45/0.21 -> easy still too easy; medium/hard are
+        #           in range but slightly below the 0.50/0.25 targets.
+        #   pass 3: 0.89/0.51/0.16 -> medium is on target, so only easy/hard
+        #           are adjusted below.
+        #   pass 4: 0.72/0.57/0.19 -> all tiers are in range; nudge toward
+        #           the 0.75/0.50/0.25 centers with clue-count tweaks only.
+        #   pass 5: 0.82/0.53/0.41 -> medium stays unchanged; easy/hard are
+        #           pulled back toward their target centers.
+        #   pass 6: 0.80/0.58/0.39 -> all are above target; hard needs the
+        #           largest pullback in direct anchors.
+        #   pass 7: 0.67/0.52/0.13 -> medium is on target; easy/hard need
+        #           slightly more evidence.
+        #   pass 8: 0.68/0.52/0.12 -> medium stays fixed; easy/hard get
+        #           another small evidence increase.
         configs = {
             Difficulty.EASY: {
-                'num_people': 3,
-                'num_categories': 3,
-                'categories': ['HouseColor', 'Pet', 'Drink'],
-                'min_constraints': 6,
-                'max_constraints': 8,
-                'direct_ratio': 0.7,  # 70% direct constraints
-            },
-            Difficulty.MEDIUM: {
-                'num_people': 4,
-                'num_categories': 4,
-                'categories': ['HouseColor', 'Pet', 'Drink', 'Job'],
-                'min_constraints': 10,
-                'max_constraints': 12,
-                'direct_ratio': 0.5,  # 50% direct constraints
-            },
-            Difficulty.HARD: {
+                # Target 75%: same 5x5 grid; add one possible clue after
+                # repeated 0.67-0.68 runs.
                 'num_people': 5,
                 'num_categories': 5,
                 'categories': ['HouseColor', 'Pet', 'Drink', 'Job', 'Hobby'],
-                'min_constraints': 15,
+                'min_constraints': 16,
                 'max_constraints': 18,
-                'direct_ratio': 0.3,  # 30% direct constraints
+                'min_direct_constraints': 6,
+                'max_direct_constraints': 6,
+            },
+            Difficulty.MEDIUM: {
+                # Target 50%: same grid; reduce anchors after the 0.58 run.
+                'num_people': 6,
+                'num_categories': 5,
+                'categories': ['HouseColor', 'Pet', 'Drink', 'Job', 'Hobby'],
+                'min_constraints': 18,
+                'max_constraints': 20,
+                'min_direct_constraints': 4,
+                'max_direct_constraints': 4,
+            },
+            Difficulty.HARD: {
+                # Target 25%: add evidence after the 0.12 run, but stay below
+                # the 10-11 direct-anchor/44-47 clue setting that reached 0.39.
+                'num_people': 8,
+                'num_categories': 7,
+                'categories': ['HouseColor', 'Pet', 'Drink', 'Job', 'Hobby', 'Food', 'Transport'],
+                'min_constraints': 43,
+                'max_constraints': 46,
+                'min_direct_constraints': 10,
+                'max_direct_constraints': 10,
             }
         }
         return configs[difficulty]
@@ -264,7 +288,14 @@ class LogicGridGenerator:
         
         # Calculate number of constraints needed
         num_constraints = random.randint(config['min_constraints'], config['max_constraints'])
-        direct_count = int(num_constraints * config['direct_ratio'])
+        if 'min_direct_constraints' in config:
+            direct_count = random.randint(
+                config['min_direct_constraints'],
+                config['max_direct_constraints'],
+            )
+            direct_count = min(direct_count, num_constraints)
+        else:
+            direct_count = int(num_constraints * config['direct_ratio'])
         indirect_count = num_constraints - direct_count
         
         # Generate direct constraints (e.g., "Alice has a Dog")

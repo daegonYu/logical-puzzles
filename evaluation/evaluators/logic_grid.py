@@ -27,36 +27,30 @@ class LogicGridEvaluator(BaseEvaluator):
     """
     
     SYSTEM_PROMPT = """### Instructions
-You are an expert at solving logic puzzles.
-Carefully analyze all constraints and provide accurate answers.
+You are an expert at logic-grid (Zebra-style) deduction puzzles.
 
 ### Rules
-1. You may provide brief reasoning first.
-2. The final line MUST be exactly in this format: Answer: {JSON object}
-3. The JSON object must follow the schema required in the user message.
-4. Use a single-line valid JSON object (double quotes, no trailing commas).
-5. Do NOT wrap JSON with markdown code fences.
-6. Do NOT add any text after the final `Answer:` line.
+1. Satisfy every clue in the user message and match the required JSON schema for the puzzle.
+2. Put a single-line valid JSON object on the final line (double quotes, no trailing commas, no markdown fences, no text after Answer:).
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-Solve the puzzle step by step, then end your response with exactly one line:
-Answer: {"Alice":{"Pet":"Cat","Drink":"Tea"},"Bob":{"Pet":"Dog","Drink":"Coffee"}}"""
+Your final line must be:
+Answer: {"Alice":{"Pet":"Cat","Drink":"Tea"},"Bob":{"Pet":"Dog","Drink":"Coffee"}}
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 논리 퍼즐 전문가입니다.
-주어진 모든 단서를 꼼꼼히 분석하고 정확한 답(JSON)을 제시하세요.
+당신은 논리 그리드(얼룩말 스타일) 추론 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-1. 필요하면 간단한 풀이를 먼저 작성해도 됩니다.
-2. 마지막 줄은 반드시 다음 형식을 정확히 지키세요: Answer: {JSON 객체}
-3. JSON 객체는 사용자 메시지의 스키마를 정확히 따라야 합니다.
-4. JSON은 한 줄의 유효한 JSON이어야 합니다(쌍따옴표, trailing comma 금지).
-5. JSON을 마크다운 코드펜스로 감싸지 마세요.
-6. 마지막 `Answer:` 줄 뒤에 추가 텍스트를 쓰지 마세요.
+1. 사용자 메시지의 모든 단서를 만족하고, 요구된 JSON 스키마를 따르세요.
+2. 마지막 줄에 한 줄짜리 유효 JSON만(쌍따옴표, trailing comma 금지, 코드펜스 금지, Answer: 뒤 추가 텍스트 금지).
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
 마지막 줄은 반드시 아래 형식으로 작성하세요:
-Answer: {"민수":{"애완동물":"고양이","음료":"차"},"지훈":{"애완동물":"강아지","음료":"커피"}}"""
+Answer: {"민수":{"애완동물":"고양이","음료":"차"},"지훈":{"애완동물":"강아지","음료":"커피"}}
+"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """task_name에 logic_grid_ko_easy 등 포함 시 한국어; question/answer에서도 추론."""

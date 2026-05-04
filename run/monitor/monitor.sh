@@ -241,4 +241,4 @@ else
     exit 1
 fi
 
-# bash scripts/monitor.sh
+# bash run/monitor/monitor.sh

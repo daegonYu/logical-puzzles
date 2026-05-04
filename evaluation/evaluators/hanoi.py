@@ -26,36 +26,44 @@ class HanoiEvaluator(BaseEvaluator):
     """
     
     SYSTEM_PROMPT = """### Instructions
-You must end with exactly one final line in this format:
-Answer: (disk, from, to)
+You are an expert at Tower of Hanoi puzzles.
+Always end with exactly one Answer: line containing a 3-integer tuple.
+
+### Answer format by question type
+- Move query (which disk moves, from where, to where) → Answer: (disk, from_peg, to_peg)
+- Disk location (where is disk d after k moves) → Answer: (disk, peg, peg)
+- Three disk locations (where are disk d1, d2, d3) → Answer: (peg_of_d1, peg_of_d2, peg_of_d3)
+- Disks on a peg (list the disks on peg X) → Answer: (disk1, disk2, peg_X)
+- Move count for disk k → Answer: (k, count, count)
+- Corrupted board (one disk misplaced, find+fix, then continue) → Answer: (top_peg0, top_peg1, top_peg2)
 
 ### Rules
-Follow the Hanoi puzzle given in the user message.
-Do not write multiple `Answer:` lines.
-Do not include any additional text after the final `Answer:` line.
-Use tuple format for all question types:
-- Move query -> (disk, from, to)
-- How many disks -> (n, n, n)
-- How many times Disk k moves -> (k, t, t)
+1. Follow the peg labels given in the user message.
+2. Explain your reasoning, then write exactly one Answer: line at the end.
+3. Do not add any text after the Answer: line.
 
 ### Output format
-Answer: (disk, from, to) — e.g. Answer: (1, 0, 2)"""
+Answer: (a, b, c)"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-반드시 마지막 줄을 아래 형식으로 작성하세요:
-Answer: (원반 번호, 출발 기둥, 도착 기둥)
+하노이 탑 퍼즐 전문가입니다.
+반드시 마지막 줄을 Answer: 형식으로 작성하세요.
+
+### 문제 유형별 답변 형식
+- 이동 문제 (어떤 원판이 어디서 어디로) → Answer: (원반, 출발기둥, 도착기둥)
+- 원판 위치 (k번째 이동 후 원판 d의 위치) → Answer: (원판, 기둥, 기둥)
+- 세 원판 위치 (원판 d1, d2, d3의 위치) → Answer: (d1의기둥, d2의기둥, d3의기둥)
+- 기둥의 원판 목록 → Answer: (원판1, 원판2, 기둥번호)
+- 원판 k의 이동 횟수 → Answer: (k, 횟수, 횟수)
+- 오류 보드 (1개 오배치, 찾아서 교정 후 계속) → Answer: (기둥0최상단, 기둥1최상단, 기둥2최상단)
 
 ### 규칙
-사용자 메시지에 주어진 하노이 퍼즐을 따르세요.
-`Answer:` 라벨은 한 번만 작성하세요.
-마지막 `Answer:` 줄 뒤에는 어떤 텍스트도 추가하지 마세요.
-모든 문제 유형에서 튜플 형식을 사용하세요:
-- 이동 문제 -> (원반, 출발, 도착)
-- 전체 원반 수 문제 -> (n, n, n)
-- 원반 k의 총 이동 횟수 문제 -> (k, t, t)
+1. 사용자 메시지의 기둥 번호를 따르세요.
+2. 풀이 과정을 설명한 후 마지막에 Answer: 줄을 하나만 작성하세요.
+3. Answer: 줄 이후에는 텍스트를 추가하지 마세요.
 
 ### 출력 형식
-예: Answer: (1, 0, 2)"""
+Answer: (a, b, c)"""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""
@@ -193,8 +201,18 @@ Answer: (원반 번호, 출발 기둥, 도착 기둥)
         if len(nums) == 1:
             v = int(nums[0])
 
-            # How many disks? -> (n, n, n)
-            if "how many disks" in question or "원반 수" in question:
+            # How many disks total? (inverse_find_n) -> (n, n, n)
+            # Exclude "top disk per peg" questions which also ask about disks per peg
+            is_inverse_en = (
+                "how many disks" in question
+                and "top" not in question
+                and "top_of_peg" not in question
+            )
+            is_inverse_ko = (
+                "원판이 몇 개" in question_raw
+                and "최상단" not in question_raw
+            )
+            if is_inverse_en or is_inverse_ko:
                 return (v, v, v)
 
             # How many times does Disk k move? -> (k, t, t)

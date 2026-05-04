@@ -27,7 +27,9 @@ class ResultHandler:
         task_name: str,
         results: List[EvaluationResult],
         model: str,
-        puzzles: Optional[List[Dict[str, Any]]] = None
+        puzzles: Optional[List[Dict[str, Any]]] = None,
+        gen_kwargs: Optional[Dict[str, Any]] = None,
+        gen_kwargs_cli: Optional[str] = None,
     ) -> Optional[Dict[str, Path]]:
         """
         Save results to CSV and JSON files (model/task folder structure)
@@ -37,6 +39,8 @@ class ResultHandler:
             results: List of evaluation results
             model: Model name
             puzzles: Original puzzle data (includes question, answer)
+            gen_kwargs: Parsed generation kwargs (written to JSON metadata)
+            gen_kwargs_cli: Original --gen-kwargs string (optional, for reproducibility)
             
         Returns:
             Dictionary of saved file paths {"csv": Path, "json": Path}
@@ -62,7 +66,15 @@ class ResultHandler:
         
         # JSON
         json_path = task_dir / f"{base_filename}.json"
-        self._save_json_summary(json_path, task_name, model, summary, timestamp)
+        self._save_json_summary(
+            json_path,
+            task_name,
+            model,
+            summary,
+            timestamp,
+            gen_kwargs=gen_kwargs,
+            gen_kwargs_cli=gen_kwargs_cli,
+        )
         
         logger.info(f"Results saved (CSV): {csv_path.name}")
         logger.info(f"Results saved (JSON): {json_path.name}")
@@ -96,8 +108,8 @@ class ResultHandler:
                 "id": result.puzzle_id,
                 "question": puzzle.get("question", ""),
                 "answer": str(result.expected),
-                "resps": result.raw_response,
                 "thinking_content": result.thinking_content,  # vLLM reasoning parser가 분리한 <think> 내부
+                "resps": result.raw_response,
                 "filtered_resps": str(result.predicted) if result.predicted is not None else "",  # Regex-extracted result
                 "exact_match": 1 if result.correct else 0,
                 "difficulty": result.difficulty
@@ -105,7 +117,7 @@ class ResultHandler:
             rows.append(row)
 
         if rows:
-            fieldnames = ["id", "question", "answer", "resps", "thinking_content", "filtered_resps", "exact_match", "difficulty"]
+            fieldnames = ["id", "question", "answer", "thinking_content", "resps", "filtered_resps", "exact_match", "difficulty"]
             with open(filepath, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
@@ -117,7 +129,9 @@ class ResultHandler:
         task_name: str,
         model: str,
         summary: Dict[str, Any],
-        timestamp: str
+        timestamp: str,
+        gen_kwargs: Optional[Dict[str, Any]] = None,
+        gen_kwargs_cli: Optional[str] = None,
     ) -> None:
         """
         Save summary by difficulty to JSON file
@@ -128,14 +142,21 @@ class ResultHandler:
             model: Model name
             summary: Summary statistics dictionary
             timestamp: Timestamp
+            gen_kwargs: Parsed generation kwargs passed to the LLM client
+            gen_kwargs_cli: Original --gen-kwargs string (if any)
         """
+        metadata: Dict[str, Any] = {
+            "task": task_name,
+            "model": model,
+            "timestamp": timestamp,
+            "total_puzzles": summary["total_count"],
+            "gen_kwargs": gen_kwargs if gen_kwargs is not None else {},
+        }
+        if gen_kwargs_cli is not None:
+            metadata["gen_kwargs_cli"] = gen_kwargs_cli
+
         output = {
-            "metadata": {
-                "task": task_name,
-                "model": model,
-                "timestamp": timestamp,
-                "total_puzzles": summary["total_count"]
-            },
+            "metadata": metadata,
             "summary": {
                 "overall": {
                     "accuracy": summary["accuracy"],

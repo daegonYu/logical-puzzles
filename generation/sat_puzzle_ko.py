@@ -211,7 +211,7 @@ class SATPuzzleGenerator:
         if seed is not None:
             random.seed(seed)
     
-    def generate(self, difficulty: Difficulty, max_retries: int = 10) -> SATPuzzle:
+    def generate(self, difficulty: Difficulty, max_retries: int = 100) -> SATPuzzle:
         """지정된 난이도의 SAT 퍼즐 생성"""
         config = self._get_difficulty_config(difficulty)
         
@@ -229,9 +229,7 @@ class SATPuzzleGenerator:
             if self._verify_unique_solution(variables, clauses, solution, config):
                 break
         else:
-            # 최대 재시도 후에는 현재 해답 수용
-            # 벤치마크 목적으로 허용 가능
-            pass
+            raise RuntimeError(f"유일한 해를 갖는 {difficulty.value} SAT 퍼즐 생성 실패")
         
         # 자연어로 변환
         natural_constraints = self._clauses_to_natural_language(clauses, domain)
@@ -247,7 +245,7 @@ class SATPuzzleGenerator:
             variables=variables,
             clauses=clauses,
             natural_constraints=natural_constraints,
-            question="",  # Temporary placeholder
+            question=self.DOMAINS[domain]['question_template'],
             answer=solution
         )
         
@@ -261,25 +259,34 @@ class SATPuzzleGenerator:
         """각 난이도에 대한 설정 매개변수 가져오기"""
         configs = {
             Difficulty.EASY: {
-                'num_vars': random.randint(3, 4),
-                'clauses_per_var': 1.2,
-                'clause_length': (2, 2),  # 절당 (최소, 최대) 리터럴
-                'negation_ratio': 0.3,
-                'min_clauses': 3,
+                # 목표: 약 75%. 이전 설정이 83%였으므로, 프롬프트는 medium보다
+                # 짧게 유지하면서 상태 공간을 조금 키운다.
+                'num_vars': random.randint(9, 10),
+                'min_clauses': 36,
+                'max_clauses': 58,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.52,
             },
             Difficulty.MEDIUM: {
-                'num_vars': random.randint(5, 7),
-                'clauses_per_var': 1.8,
-                'clause_length': (2, 3),
-                'negation_ratio': 0.5,
-                'min_clauses': 8,
+                # 목표: 약 50%. 이전 설정이 46%였으므로, 변수 11개는 유지하고
+                # 노이즈를 약간 줄여 몇 점 회복한다.
+                'num_vars': 11,
+                'min_clauses': 56,
+                'max_clauses': 88,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.54,
             },
             Difficulty.HARD: {
-                'num_vars': random.randint(10, 12),
-                'clauses_per_var': 2.2,
-                'clause_length': (2, 4),
-                'negation_ratio': 0.7,
-                'min_clauses': 20,
+                # 목표: 약 25%. 14변수 / 130개 이상 절 설정이 16%였으므로,
+                # 변수 수는 유지하고 절 노이즈만 약간 줄인다.
+                'num_vars': 14,
+                'min_clauses': 115,
+                'max_clauses': 170,
+                'clause_length': (3, 4),
+                'unit_clause_rate': 0.0,
+                'negation_ratio': 0.57,
             }
         }
         return configs[difficulty]
@@ -303,68 +310,71 @@ class SATPuzzleGenerator:
         solution: Dict[str, bool],
         config: dict
     ) -> List[SATClause]:
-        """해답으로 만족되는 CNF 절 생성"""
-        num_clauses = max(
-            config['min_clauses'],
-            int(len(variables) * config['clauses_per_var'])
-        )
-        
-        clauses = []
+        """목표 해답을 만족하는 무작위 CNF 절 생성"""
+        clauses: List[SATClause] = []
         used_clauses = set()
-        
-        attempts = 0
-        max_attempts = num_clauses * 100
-        
-        while len(clauses) < num_clauses and attempts < max_attempts:
-            attempts += 1
-            
-            # 절 길이 생성
-            min_len, max_len = config['clause_length']
-            clause_len = random.randint(min_len, min(max_len, len(variables)))
-            
-            # 이 절의 변수 선택
-            selected_vars = random.sample(variables, clause_len)
-            
-            # 절이 만족되도록 리터럴 생성
-            # 전략: 해답을 기반으로 최소 하나의 리터럴을 TRUE로 만들기
-            literals = []
-            
-            # 먼저 최소 하나의 TRUE 리터럴 추가하여 절이 만족되도록 함
-            true_var = random.choice(selected_vars)
-            true_literal_positive = solution[true_var]
-            literals.append((true_var, true_literal_positive))
-            
-            # 나머지 리터럴을 무작위로 추가
-            for var in selected_vars:
-                if var == true_var:
-                    continue
-                    
-                # 부정에 대한 무작위 결정
-                if random.random() < config['negation_ratio']:
-                    # 부정: solution[var]=True이면 NOT var (False) 사용
-                    is_positive = False
-                else:
-                    # 부정 안 함: var를 그대로 사용
-                    is_positive = True
-                
-                literals.append((var, is_positive))
-            
-            # 패턴 회피를 위해 섞기
-            random.shuffle(literals)
-            
-            # 절이 만족되는지 검증 (이제 항상 참이어야 함)
-            if not self._eval_clause(literals, solution):
-                continue
-            
-            # 중복 절 회피
+
+        def append_clause(literals: List[Tuple[str, bool]]) -> bool:
             clause_sig = tuple(sorted(literals))
             if clause_sig in used_clauses:
-                continue
-            
+                return False
+            if not self._eval_clause(literals, solution):
+                return False
             used_clauses.add(clause_sig)
             clauses.append(SATClause(literals=literals))
+            return True
+
+        attempts = 0
+        max_attempts = config['max_clauses'] * 500
+
+        while attempts < max_attempts and len(clauses) < config['max_clauses']:
+            attempts += 1
+            literals = self._generate_random_satisfied_clause(variables, solution, config)
+            append_clause(literals)
+            if len(clauses) >= config['min_clauses'] and self._count_solutions(variables, clauses, stop_after=2) == 1:
+                break
         
         return clauses
+
+    def _solution_literal(self, var: str, solution: Dict[str, bool]) -> Tuple[str, bool]:
+        """목표 해답에서 해당 변수를 참으로 만드는 리터럴 반환"""
+        return (var, solution[var])
+
+    def _negate_literal(self, literal: Tuple[str, bool]) -> Tuple[str, bool]:
+        """리터럴의 논리 부정 반환"""
+        var, is_positive = literal
+        return (var, not is_positive)
+
+    def _generate_random_satisfied_clause(
+        self,
+        variables: List[str],
+        solution: Dict[str, bool],
+        config: dict,
+    ) -> List[Tuple[str, bool]]:
+        """목표 해답을 만족하는 무작위 절 하나 생성"""
+        min_len, max_len = config['clause_length']
+        if random.random() < config['unit_clause_rate']:
+            clause_len = 1
+        else:
+            clause_len = random.randint(min_len, min(max_len, len(variables)))
+
+        selected_vars = random.sample(variables, clause_len)
+        literals = []
+        has_true_literal = False
+
+        for var in selected_vars:
+            is_positive = not solution[var] if random.random() < config['negation_ratio'] else solution[var]
+            if self._eval_literal(var, is_positive, solution):
+                has_true_literal = True
+            literals.append((var, is_positive))
+
+        if not has_true_literal:
+            idx = random.randrange(len(literals))
+            var, _ = literals[idx]
+            literals[idx] = self._solution_literal(var, solution)
+
+        random.shuffle(literals)
+        return literals
     
     def _eval_literal(self, var: str, is_positive: bool, solution: Dict[str, bool]) -> bool:
         """해답이 주어졌을 때 리터럴 평가"""
@@ -375,6 +385,27 @@ class SATPuzzleGenerator:
         """절(리터럴의 논리합) 평가"""
         return any(self._eval_literal(var, is_pos, solution) 
                   for var, is_pos in literals)
+
+    def _count_solutions(
+        self,
+        variables: List[str],
+        clauses: List[SATClause],
+        stop_after: Optional[int] = None,
+    ) -> int:
+        """만족하는 할당 수를 세되, 필요하면 조기 중단"""
+        num_solutions = 0
+
+        for i in range(2 ** len(variables)):
+            assignment = {}
+            for j, var in enumerate(variables):
+                assignment[var] = bool((i >> j) & 1)
+
+            if all(self._eval_clause(clause.literals, assignment) for clause in clauses):
+                num_solutions += 1
+                if stop_after is not None and num_solutions >= stop_after:
+                    return num_solutions
+
+        return num_solutions
     
     def _verify_unique_solution(
         self,
@@ -385,36 +416,9 @@ class SATPuzzleGenerator:
     ) -> bool:
         """
         절이 유일 해로 이어지는지 검증
-        소규모 문제에 대한 단순화된 전수 조사 검사
-        실제 운영에서는 해 카운팅이 있는 적절한 SAT 솔버 사용
+        보정된 SAT 퍼즐은 변수 14개 이하이므로 전수 해 카운팅이 가능하다.
         """
-        # 큰 문제의 경우 검증 생략 (너무 느림)
-        # 벤치마크를 위해 해답을 그대로 수용
-        if len(variables) > 6:
-            return True
-        
-        # 전수 조사: 모든 가능한 할당 시도
-        num_solutions = 0
-        
-        for i in range(2 ** len(variables)):
-            # 이진 표현에서 할당 생성
-            assignment = {}
-            for j, var in enumerate(variables):
-                assignment[var] = bool((i >> j) & 1)
-            
-            # 모든 절이 만족되는지 확인
-            satisfied = True
-            for clause in clauses:
-                if not self._eval_clause(clause.literals, assignment):
-                    satisfied = False
-                    break
-            
-            if satisfied:
-                num_solutions += 1
-                if num_solutions > 1:
-                    return False  # 다중 해
-        
-        return num_solutions == 1
+        return self._count_solutions(variables, clauses, stop_after=2) == 1
     
     def _clauses_to_natural_language(
         self,
@@ -550,9 +554,11 @@ def generate_dataset(
             "answer": p.answer,
             "solution": _build_sat_solution_ko(p),
             "difficulty": p.difficulty,
+            "variables": p.variables,
+            "clauses": [[[lit[0], lit[1]] for lit in clause.literals] for clause in p.clauses],
         }
 
-    # JSONL로 저장 (5개 필드만)
+    # JSONL로 저장
     jsonl_path = json_dir / "sat_puzzles_ko.jsonl"
     with open(jsonl_path, 'w', encoding='utf-8') as f:
         for puzzle in puzzles:
@@ -562,12 +568,14 @@ def generate_dataset(
     import csv as csv_module
     csv_path = csv_dir / "sat_puzzles_ko.csv"
     with open(csv_path, 'w', encoding='utf-8', newline='') as f:
-        fieldnames = ['id', 'question', 'answer', 'solution', 'difficulty']
+        fieldnames = ['id', 'question', 'answer', 'solution', 'difficulty', 'variables', 'clauses']
         writer = csv_module.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for puzzle in puzzles:
             r = _row(puzzle)
             r["answer"] = json.dumps(r["answer"], ensure_ascii=False)
+            r["variables"] = json.dumps(r["variables"], ensure_ascii=False)
+            r["clauses"] = json.dumps(r["clauses"], ensure_ascii=False)
             writer.writerow(r)
     
     print(f"   - JSONL: {jsonl_path}")
@@ -612,7 +620,7 @@ def main():
             print(f"\n{'='*70}")
             print(f"{difficulty.upper()} 예제")
             print(f"{'='*70}")
-            print(puzzle.to_prompt())
+            print(puzzle.question)
             print(f"✅ **정답:**")
             for var, value in puzzle.answer.items():
                 print(f"   {var}: {value}")

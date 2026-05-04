@@ -26,31 +26,29 @@ class ArrayFormulaEvaluator(BaseEvaluator):
     """
 
     SYSTEM_PROMPT = """### Instructions
-You are a spreadsheet/Excel expert.
-Analyze the given table data and answer the question accurately.
+You are an expert at spreadsheet and array-formula puzzles.
 
 ### Rules
-1. For numeric results, answer with only the number (no units, commas, or currency symbols)
-2. For decimals, truncate unless otherwise specified
-3. For text answers, provide the exact value only
-4. Briefly explain your reasoning, then end with "Answer: [answer]"
+1. Read the given table and the question carefully, then compute or infer the required value.
+2. For numbers, reply with digits only (no units, commas, or symbols); truncate decimals unless the puzzle says otherwise. For text, give the exact string only.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-End your response with a line: Answer: [answer]
+Your final line must be:
+Answer: [answer]
 """
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 스프레드시트/Excel 전문가입니다.
-주어진 표 데이터를 분석하고 질문에 정확하게 답하세요.
+당신은 스프레드시트·배열 수식 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-1. 숫자 결과는 숫자만 답하세요 (단위, 쉼표, 통화 기호 없이)
-2. 소수점은 별도 지시가 없으면 버림 처리하세요
-3. 텍스트 답변은 정확한 값만 작성하세요
-4. 풀이 과정을 간략히 설명한 후, "Answer: [답]"으로 마무리하세요
+1. 주어진 표와 질문을 꼼꼼히 읽고 필요한 값을 계산하거나 추론하세요.
+2. 숫자는 숫자만(단위·쉼표·기호 없이), 별도 지시가 없으면 소수는 버림; 텍스트는 정확한 문자열만 제시하세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-마지막에 "Answer: [답]" 형식으로 끝내세요.
+마지막 줄은 반드시 아래 형식으로 작성하세요:
+Answer: [답]
 """
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:

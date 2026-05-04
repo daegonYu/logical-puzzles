@@ -2,7 +2,7 @@
 
 Answer format: K space-separated digits at spotcheck (row, col) positions.
 Ported from logical-puzzles-me/sudoku prompts + gemini_eval:
-- SYSTEM_PROMPT / KOREAN_SYSTEM_PROMPT with rules + Answer format
+- SYSTEM_PROMPT / KOREAN_SYSTEM_PROMPT: shared rule-3 phrasing + Answer format
 - _prepare_puzzle_for_eval: reads puzzle["spotcheck"]["positions"], appends
   spotcheck instruction to user content.
 - _parse_answer: extracts K space-separated digits (each 1-9) from
@@ -30,46 +30,32 @@ class SudokuEvaluator(BaseEvaluator):
     """Sudoku puzzle evaluator using spotcheck digit-tuple scoring."""
 
     SYSTEM_PROMPT = """### Instructions
-You are a logic puzzle expert specializing in Sudoku.
+You are an expert at standard 9×9 Sudoku.
 
 ### Rules
-Solve the 9x9 Sudoku puzzle following standard rules:
-- Each row must contain digits 1-9 exactly once
-- Each column must contain digits 1-9 exactly once
-- Each 3x3 box must contain digits 1-9 exactly once
-- '.' or '0' represents an empty cell in the given puzzle
-
-### Output
-After solving the entire puzzle, the user will give you a list of (row, col)
-spotcheck positions. Report the digits at those positions in the same order.
+1. Each row, column, and 3×3 box must contain digits 1–9 exactly once; '.' or '0' marks a given empty cell.
+2. Solve the full grid implied by the puzzle, then read the spotcheck (row, col) list the user appends and take digits from your completed solution in that order.
+3. Explain your reasoning clearly, then present your final conclusion in the format below.
 
 ### Output format
-Your very last line MUST be exactly:
+Your final line must be:
 Answer: d1 d2 d3 ...
-
-Where each d_i is a digit 1-9 at the i-th spotcheck position, separated by a
-single space. Example: `Answer: 5 3 4 6 7 8` (for 6 spotcheck positions)."""
+(each d_i is 1–9 for the i-th spotcheck position, single spaces; e.g. Answer: 5 3 4 6 7 8 for six checks.)
+"""
 
     KOREAN_SYSTEM_PROMPT = """### 지시사항
-당신은 스도쿠 논리 퍼즐 전문가입니다.
+당신은 표준 9×9 스도쿠 퍼즐을 정확히 푸는 전문가입니다.
 
 ### 규칙
-9×9 스도쿠 퍼즐을 표준 규칙에 따라 풀어주세요:
-- 각 행에 1-9가 정확히 한 번씩 나타나야 합니다
-- 각 열에 1-9가 정확히 한 번씩 나타나야 합니다
-- 각 3×3 박스에 1-9가 정확히 한 번씩 나타나야 합니다
-- '.' 또는 '0'은 빈 셀을 나타냅니다
-
-### 출력
-퍼즐을 완전히 푼 후, 사용자가 제시하는 (행, 열) 스팟체크 좌표들에 대해
-해당 위치의 숫자들을 같은 순서로 보고하세요.
+1. 각 행·열·3×3 박스에 1–9가 정확히 한 번씩; '.' 또는 '0'은 빈 칸입니다.
+2. 퍼즐을 완전히 푼 뒤, 사용자가 덧붙인 스팟체크 (행, 열) 순서대로 완성 격자에서 숫자를 읽으세요.
+3. 풀이 과정을 명확히 서술한 뒤, 최종 결론을 아래 형식으로 제시하세요.
 
 ### 출력 형식
-응답의 마지막 줄은 반드시 다음과 같이 작성하세요:
+마지막 줄은 반드시 아래 형식으로 작성하세요:
 Answer: d1 d2 d3 ...
-
-여기서 각 d_i는 i번째 스팟체크 위치의 숫자(1-9)이며, 공백 한 칸으로 구분합니다.
-예: `Answer: 5 3 4 6 7 8` (스팟체크 좌표가 6개인 경우)."""
+(각 d_i는 i번째 스팟체크 위치의 1–9, 공백 한 칸 구분. 예: 스팟체크 6개면 Answer: 5 3 4 6 7 8)
+"""
 
     # ========================================================================
     # Language helpers
