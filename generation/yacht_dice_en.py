@@ -19,6 +19,12 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
+
+# Precompute the 720 permutations of (0..5) once (used for every solve call).
+_PERMS_6 = np.array(list(itertools.permutations(range(6))), dtype=np.int8)  # (720, 6)
+_ROW_IDX_6 = np.arange(6, dtype=np.int8)  # for fancy-indexing
+
 
 # ============================================================
 # Configuration
@@ -180,45 +186,41 @@ def solve_yacht_dice(dice_results: List[List[int]], config: YachtDiceConfig) -> 
     lower_cats = categories[6:]
     n = len(dice_results)
 
-    upper_scores = []
-    lower_scores = []
+    # Score matrix precomputation (numpy-vectorized).
+    upper_scores = np.zeros((n, 6), dtype=np.int32)
+    lower_scores = np.zeros((n, 6), dtype=np.int32)
     for i in range(n):
-        upper_scores.append(
-            [calculate_score_with_config(dice_results[i], cat, config) for cat in upper_cats]
-        )
-        lower_scores.append(
-            [calculate_score_with_config(dice_results[i], cat, config) for cat in lower_cats]
-        )
-
-    perms_6 = list(itertools.permutations(range(6)))
+        for j, cat in enumerate(upper_cats):
+            upper_scores[i, j] = calculate_score_with_config(dice_results[i], cat, config)
+        for j, cat in enumerate(lower_cats):
+            lower_scores[i, j] = calculate_score_with_config(dice_results[i], cat, config)
 
     is_maximize = config.optimization_goal == "maximize"
     best_total = -1 if is_maximize else float('inf')
     optimal_assignments: set = set()
 
+    perms = _PERMS_6              # (720, 6)
+    perms_list = perms.tolist()   # for fast Python iteration when collecting tied keys
+
+    # C(12, 6) = 924 subset enumeration. Use numpy to evaluate 720 perms at once.
     for upper_rounds in itertools.combinations(range(n), 6):
-        lower_rounds = [i for i in range(n) if i not in upper_rounds]
+        lower_rounds = tuple(i for i in range(n) if i not in upper_rounds)
         upper_list = list(upper_rounds)
 
-        best_upper_score = -1 if is_maximize else float('inf')
-        best_upper_perms: List[Tuple[int, ...]] = []
-        for perm in perms_6:
-            s = sum(upper_scores[upper_list[j]][perm[j]] for j in range(6))
-            if (is_maximize and s > best_upper_score) or (not is_maximize and s < best_upper_score):
-                best_upper_score = s
-                best_upper_perms = [perm]
-            elif s == best_upper_score:
-                best_upper_perms.append(perm)
+        # Sub-matrix shape (6, 6) — round_in_subset × category
+        sub_upper = upper_scores[upper_list, :]
+        sub_lower = lower_scores[list(lower_rounds), :]
 
-        best_lower_score = -1 if is_maximize else float('inf')
-        best_lower_perms: List[Tuple[int, ...]] = []
-        for perm in perms_6:
-            s = sum(lower_scores[lower_rounds[j]][perm[j]] for j in range(6))
-            if (is_maximize and s > best_lower_score) or (not is_maximize and s < best_lower_score):
-                best_lower_score = s
-                best_lower_perms = [perm]
-            elif s == best_lower_score:
-                best_lower_perms.append(perm)
+        # All perm sums vectorized: sums[k] = sum_j sub[j, perms[k, j]]
+        upper_sums = sub_upper[_ROW_IDX_6, perms].sum(axis=1)  # (720,)
+        lower_sums = sub_lower[_ROW_IDX_6, perms].sum(axis=1)
+
+        if is_maximize:
+            best_upper_score = int(upper_sums.max())
+            best_lower_score = int(lower_sums.max())
+        else:
+            best_upper_score = int(upper_sums.min())
+            best_lower_score = int(lower_sums.min())
 
         bonus = config.bonus_points if best_upper_score >= config.bonus_threshold else 0
         total = best_upper_score + best_lower_score + bonus
@@ -228,6 +230,13 @@ def solve_yacht_dice(dice_results: List[List[int]], config: YachtDiceConfig) -> 
             optimal_assignments.clear()
 
         if total == best_total:
+            # This subset ties best_total — only enumerate tied permutations.
+            upper_tie_mask = upper_sums == best_upper_score
+            lower_tie_mask = lower_sums == best_lower_score
+            best_upper_perms = [perms_list[i] for i in np.flatnonzero(upper_tie_mask)]
+            best_lower_perms = [perms_list[i] for i in np.flatnonzero(lower_tie_mask)]
+
+            stop = False
             for up in best_upper_perms:
                 for lp in best_lower_perms:
                     key = tuple(
@@ -237,8 +246,9 @@ def solve_yacht_dice(dice_results: List[List[int]], config: YachtDiceConfig) -> 
                     )
                     optimal_assignments.add(key)
                     if len(optimal_assignments) > 1:
+                        stop = True
                         break
-                if len(optimal_assignments) > 1:
+                if stop:
                     break
 
     is_unique = len(optimal_assignments) == 1
@@ -335,12 +345,16 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
         "weights":    [60, 20, 5, 15],
     },
     "medium": {
-        # v6: gpt-5.4-mini 87% at v3. Push 'normal' fraction up.
-        "roll_types": ['partial_straight', 'pair', 'three_kind', 'normal'],
-        "weights":    [15, 10, 5, 70],
+        # v8 shift: medium 슬롯이 v7 hard config 를 채택 (pure random, weights [100]).
+        # v7 medium (partial_straight + 3-kind + pair + normal weights [15,10,5,70])
+        # 데이터는 *_v7.jsonl 백업.
+        "roll_types": ['normal'],
+        "weights":    [100],
     },
     "hard":   {
-        # v6: gpt-5.4-mini 77% at v3. Pure random — no structured shortcuts.
+        # v8 candidate: pure random (동일) — yacht_dice 의 difficulty axis 는 dice
+        # generation 보다 _DIFFICULTY_BANDS 의 greedy_gap / decision_complexity 에 의해
+        # 좌우됨. roll_types 는 v7 hard 와 동일하게 두고 band 만 더 tight 하게 (아래).
         "roll_types": ['normal'],
         "weights":    [100],
     },
@@ -353,19 +367,26 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
 # reject obvious outliers — e.g., a hard puzzle where greedy already nears
 # optimal, or an easy puzzle that traps greedy by a large margin.
 _DIFFICULTY_BANDS = {
-    # v7.3: weights v6 회귀 (easy 빠른 generation). bands 는 v6 medium/hard
-    # 겹침 [24,28] 만 제거 — easy/medium/hard 단조성만 보장.
+    # v8.2 (Y-1): v8 결과 80/80/88 — gap 큰 puzzle 일수록 optimal vs second-best
+    # 차이 명확해 모델 정답률 ↑. 즉 greedy_gap 은 역방향 step proxy. 진짜 어려움은
+    # gap 작고 decision_complexity 높은 케이스. easy band 도 [0,10]/[0,2.5] 로 좁힘
+    # (hard 의 gap [0,25] 와 분리). band 검사는 abs(greedy_gap) 으로 통일하여
+    # minimize 모드에서도 동일 의미.
     'easy': {
-        'greedy_gap': {'min': 0, 'max': 15},
+        # v8.2 (Y-1): [0,10]/[0,2.5] 시도 → 200 retries fail 빈번. v8 회귀.
+        # easy 와 hard 의 gap 범위 겹침 ([0,15] ⊃ [0,25]) 은 complexity 로 분리.
+        'greedy_gap_abs': {'min': 0, 'max': 15},
         'decision_complexity': {'min': 0.0, 'max': 3.0},
     },
     'medium': {
-        'greedy_gap': {'min': 16, 'max': 23},
-        'decision_complexity': {'min': 3.2, 'max': 4.7},
+        'greedy_gap_abs': {'min': 30, 'max': None},   # v8 hard 그대로
+        'decision_complexity': {'min': 5.5, 'max': None},
     },
     'hard': {
-        'greedy_gap': {'min': 24, 'max': None},
-        'decision_complexity': {'min': 4.8, 'max': None},
+        # v8.2 (Y-1): [0,25]/[9.5,∞] 시도 → 6/6 fail (200 retries 빈번 exhaust).
+        # gap 작음 + complexity 매우 높음 동시 만족이 드뭄. complexity 9.5→8 완화.
+        'greedy_gap_abs': {'min': 0, 'max': 29},      # gap 작게, medium [30,∞] 와 분리
+        'decision_complexity': {'min': 8.0, 'max': None},  # 완화
     },
 }
 
@@ -465,6 +486,8 @@ class YachtDiceProblemGenerator:
             optimal_score, optimal_assignment, is_unique = solve_yacht_dice(dice_results, self.config)
             greedy_score, _ = solve_yacht_dice_greedy(dice_results, self.config)
             greedy_gap = optimal_score - greedy_score
+            # abs gap unifies maximize (gap>=0) and minimize (gap<=0) modes.
+            greedy_gap_abs = abs(greedy_gap)
 
             per_round_margin: List[int] = []
             per_round_top1: List[int] = []
@@ -492,6 +515,7 @@ class YachtDiceProblemGenerator:
                 'is_unique_assignment': is_unique,
                 'greedy_score': greedy_score,
                 'greedy_gap': greedy_gap,
+                'greedy_gap_abs': greedy_gap_abs,
                 'per_round_margin': per_round_margin,
                 'per_round_top1': per_round_top1,
                 'total_decision_complexity': total_decision_complexity,
@@ -499,12 +523,13 @@ class YachtDiceProblemGenerator:
                 'bonus_applied': bonus_applied,
             }
 
-            gap_band = band.get('greedy_gap', {})
+            # New band key: greedy_gap_abs (legacy 'greedy_gap' also accepted).
+            gap_band = band.get('greedy_gap_abs') or band.get('greedy_gap', {})
             complexity_band = band.get('decision_complexity', {})
             ok = True
-            if gap_band.get('min') is not None and greedy_gap < gap_band['min']:
+            if gap_band.get('min') is not None and greedy_gap_abs < gap_band['min']:
                 ok = False
-            if gap_band.get('max') is not None and greedy_gap > gap_band['max']:
+            if gap_band.get('max') is not None and greedy_gap_abs > gap_band['max']:
                 ok = False
             if complexity_band.get('min') is not None and total_decision_complexity < complexity_band['min']:
                 ok = False
@@ -530,6 +555,7 @@ class YachtDiceProblemGenerator:
                 "total_decision_complexity": selected['total_decision_complexity'],
                 "zero_margin_rounds": selected['zero_margin_rounds'],
                 "greedy_gap": selected['greedy_gap'],
+                "greedy_gap_abs": selected['greedy_gap_abs'],
                 "bonus_applied": selected['bonus_applied'],
                 "is_unique_assignment": selected['is_unique_assignment'],
                 "band_violation": band_violation,

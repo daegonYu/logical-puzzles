@@ -88,22 +88,32 @@ def find_solutions(
     mapping = {}
     used_digits = set()
 
+    # Pre-compute per-column letter structure (operands + result) once.
+    # Avoids list-comp re-build inside the per-node prune loop.
+    cols_op_letters: List[Tuple[str, ...]] = []
+    cols_cr: List[Optional[str]] = []
+    for col in range(max_len):
+        cols_op_letters.append(tuple(
+            rw[col] for rw in reversed_ops if col < len(rw)
+        ))
+        cols_cr.append(wr[col] if col < len(wr) else None)
+
     def _check_columns(mapping):
         carry = 0
         for col in range(max_len):
-            op_letters = [rw[col] if col < len(rw) else None for rw in reversed_ops]
-            cr = wr[col] if col < len(wr) else None
+            ops = cols_op_letters[col]
+            cr = cols_cr[col]
 
-            for ol in op_letters:
-                if ol is not None and ol not in mapping:
+            for ol in ops:
+                if ol not in mapping:
                     return True
             if cr is not None and cr not in mapping:
                 return True
 
             total = carry
-            for ol in op_letters:
-                total += mapping.get(ol, 0) if ol else 0
-            dr = mapping.get(cr, 0) if cr else 0
+            for ol in ops:
+                total += mapping[ol]
+            dr = mapping[cr] if cr is not None else 0
 
             if total % 10 != dr:
                 return False
@@ -136,17 +146,21 @@ def find_solutions(
             valid = True
             carry = 0
             for col in range(max_len):
-                op_letters = [rw[col] if col < len(rw) else None for rw in reversed_ops]
-                cr = wr[col] if col < len(wr) else None
+                ops = cols_op_letters[col]
+                cr = cols_cr[col]
 
-                all_assigned = all(ol is None or ol in mapping for ol in op_letters)
+                all_assigned = True
+                for ol in ops:
+                    if ol not in mapping:
+                        all_assigned = False
+                        break
                 has_cr = cr is None or cr in mapping
 
                 if all_assigned and has_cr:
                     total = carry
-                    for ol in op_letters:
-                        total += mapping.get(ol, 0) if ol else 0
-                    dr = mapping.get(cr, 0) if cr else 0
+                    for ol in ops:
+                        total += mapping[ol]
+                    dr = mapping[cr] if cr is not None else 0
                     if total % 10 != dr:
                         valid = False
                         break
@@ -350,21 +364,8 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
         "max_attempts": 5000,
     },
     "medium": {
-        # v6.2: v6 (8-9 letters, 4000 steps) caused retries. Soften to 7-8 letters,
-        # 1500 steps — still ~2.3× v4 (650).
-        "num_operands": 2,
-        "num1_range": (1000, 9999),
-        "num2_range": (1000, 9999),
-        "min_carries": 2,
-        "max_carries": 3,
-        "require_overflow": None,
-        "target_letters": (7, 8),
-        "min_solver_steps": 1500,
-        "max_attempts": 8000,
-    },
-    "hard": {
-        # v6.2: v6 (10 letters, 12000 steps) likely infeasible. 9-10 letters, 5000 steps
-        # is still 2× v4 (2500).
+        # v8 shift: medium 슬롯이 v7 hard config 를 채택. 기존 v7 medium (7-8L, 1500s)
+        # 에서 9-10L, 5000s 로 step proxy 약 3× 증가. v7 medium 데이터는 *_v7.jsonl 백업.
         "num_operands": 2,
         "num1_range": (10000, 99999),
         "num2_range": (10000, 99999),
@@ -374,6 +375,20 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
         "target_letters": (9, 10),
         "min_solver_steps": 5000,
         "max_attempts": 10000,
+    },
+    "hard": {
+        # v8.1 candidate: letters 10-11, steps 9800 — easy(200) → medium(5000) gap=4800,
+        # medium(5000) → hard(9800) gap=4800 → 균일 step proxy gap. v8 (11-12L, 15000s)
+        # 는 0/5 (100 retries) fail — 9800/10-11L 로 완화.
+        "num_operands": 2,
+        "num1_range": (10000, 99999),
+        "num2_range": (10000, 99999),
+        "min_carries": 4,
+        "max_carries": None,
+        "require_overflow": None,
+        "target_letters": (10, 11),
+        "min_solver_steps": 9800,
+        "max_attempts": 12000,
     },
 }
 

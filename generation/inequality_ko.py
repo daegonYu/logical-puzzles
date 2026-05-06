@@ -76,6 +76,7 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
     "medium": {
         # v6.1: v6 (reveal 0.26, vis_steps 60) exhausted retries. Soften to
         # reveal 0.30 + vis_steps 40 — still meaningfully tighter than v4 (0.32, 30).
+        # v8 시도 (medium=v7 hard) → hard 측 fail (6000 retries) → v7 회귀.
         "size_range": (14, 16),
         "hint_ratio": 0.0,
         "min_hints": 1,
@@ -86,8 +87,10 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
     "hard": {
         # v6.3: v6 (16-18, 0.22, 120), v6.1 (16-18, 0.28, 80), v6.2 (15-17, 0.30, 65)
         # all FAILED 6000 retries. v4 (13-15, 0.34, 60) is the generator feasibility
-        # ceiling. Accept v4 hard for now — top model saturation is structural.
-        # TODO (v7+): rethink generator algorithm if greater hard tightening required.
+        # ceiling. v8 재시도 (16-18, 0.22, 120) 도 6000 retries fail 재현 → v7 유지.
+        # v8.3 시도 (14-16, 0.34, 90, retries 16000~100000) — smoke n=5 PASS 하지만
+        # n=50 시 일부 seed 16000 retries 부족, 100000 도 시간 폭주 → v7 회귀 결정.
+        # generator-bound ceiling 인정.
         "size_range": (13, 15),
         "hint_ratio": 0.0,
         "min_hints": 1,
@@ -131,23 +134,33 @@ class InequalityPuzzleGenerator:
         unfixed = [i for i in range(size) if i not in given_numbers]
 
         def domain_values(pos: int):
+            # 인접 위치 값으로부터 [lo, hi] 윈도우를 미리 계산 → 이웃 제약이 강할 때
+            # 1..size 전체 범위를 순회하는 비용을 회피.
+            lo, hi = 1, size
+            if pos > 0 and assignment[pos - 1] != 0:
+                prev = assignment[pos - 1]
+                ineq = inequalities[pos - 1]
+                if ineq == "<":
+                    if prev + 1 > lo:
+                        lo = prev + 1
+                elif ineq == ">":
+                    if prev - 1 < hi:
+                        hi = prev - 1
+            if pos < size - 1 and assignment[pos + 1] != 0:
+                nxt = assignment[pos + 1]
+                ineq = inequalities[pos]
+                if ineq == "<":
+                    if nxt - 1 < hi:
+                        hi = nxt - 1
+                elif ineq == ">":
+                    if nxt + 1 > lo:
+                        lo = nxt + 1
+            if lo > hi:
+                return []
             values = []
-            for val in range(1, size + 1):
-                if used[val]:
-                    continue
-                if pos > 0 and assignment[pos - 1] != 0:
-                    ineq = inequalities[pos - 1]
-                    if ineq == "<" and assignment[pos - 1] >= val:
-                        continue
-                    if ineq == ">" and assignment[pos - 1] <= val:
-                        continue
-                if pos < size - 1 and assignment[pos + 1] != 0:
-                    ineq = inequalities[pos]
-                    if ineq == "<" and val >= assignment[pos + 1]:
-                        continue
-                    if ineq == ">" and val <= assignment[pos + 1]:
-                        continue
-                values.append(val)
+            for val in range(lo, hi + 1):
+                if not used[val]:
+                    values.append(val)
             return values
 
         def choose_next_pos():
