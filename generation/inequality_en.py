@@ -88,6 +88,8 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
         # v6.3: v6 (16-18, 0.22, 120), v6.1 (16-18, 0.28, 80), v6.2 (15-17, 0.30, 65)
         # all FAILED 6000 retries. v4 (13-15, 0.34, 60) is the generator feasibility
         # ceiling. v8 재시도 (16-18, 0.22, 120) 도 6000 retries fail 재현 → v7 유지.
+        # v8.3 시도 (14-16, 0.34, 90, retries 16000~100000) — smoke n=5 PASS 하지만
+        # n=50 시 일부 seed 16000 retries 부족, 100000 도 시간 폭주 → v7 회귀 결정.
         # generator-bound ceiling 인정.
         "size_range": (13, 15),
         "hint_ratio": 0.0,
