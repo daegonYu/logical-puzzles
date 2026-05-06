@@ -18,7 +18,16 @@ from typing import List, Tuple, Optional, Dict, Set
 MAX_SOLUTIONS = 1
 
 
+# Cache: per-grid-shape neighbor lists. Keyed by (R, C, r, c). Same grid-shape
+# generates many puzzles, all sharing the same boundary topology.
+_NEIGHBOR_CACHE: Dict[Tuple[int, int, int, int], List[Tuple[int, int]]] = {}
+
+
 def neighbors(r: int, c: int, R: int, C: int) -> List[Tuple[int, int]]:
+    key = (R, C, r, c)
+    cached = _NEIGHBOR_CACHE.get(key)
+    if cached is not None:
+        return cached
     result = []
     for dr in (-1, 0, 1):
         for dc in (-1, 0, 1):
@@ -27,6 +36,7 @@ def neighbors(r: int, c: int, R: int, C: int) -> List[Tuple[int, int]]:
             nr, nc = r + dr, c + dc
             if 0 <= nr < R and 0 <= nc < C:
                 result.append((nr, nc))
+    _NEIGHBOR_CACHE[key] = result
     return result
 
 
@@ -157,8 +167,8 @@ def coords_to_answer_string(coords: List[Tuple[int, int]]) -> str:
 class DifficultyPuzzleGenerator:
     DIFFICULTY_CONFIGS = {
         'easy': {
-            # v3 recalibration: reveal 0.55 (from 0.45), nodes 0 (from 5) for very
-            # LLM-friendly easy. gemini v2 dropped to 47% — making clearly easier.
+            # v4 회귀: parser fix 후 v4 baseline (5x5, 0.55 reveal) 이 이미 단조
+            # (gpt-5.4-mini 100/90/63 monotonic). 사용자 정책 (top monotonic) 충족.
             'grid_size': (5, 5),
             'mine_ratio': 0.12,
             'reveal_ratio': 0.55,
@@ -168,8 +178,8 @@ class DifficultyPuzzleGenerator:
             'description': '5x5 grid, mostly-revealed cells',
         },
         'medium': {
-            # v3 recalibration: 7x7 → 6x6 + mine 0.14 + reveal 0.30 + nodes 25 so
-            # gpt-5.4-mini (v2: 3%) can reach ~30-50% range and easy≥medium holds.
+            # v4 회귀
+            # v8 시도 (medium=v7 hard) → smoke 단계 timeout (medium 8x8 자체 시간 폭주) → v7 회귀.
             'grid_size': (6, 6),
             'mine_ratio': 0.14,
             'reveal_ratio': 0.30,
@@ -179,16 +189,17 @@ class DifficultyPuzzleGenerator:
             'description': '6x6 grid, moderate reveals',
         },
         'hard': {
-            # v2 recalibration: slightly higher mine density + lower reveal + higher node bar.
-            # Stayed at 8x8 (not 9x9) because 9x9 + mine 0.20 exhausted generation time in pre-test.
+            # v4 회귀 (v6 250 nodes 5min/puzzle 너무 느림. v4 120 이 generation
+            # 가능 영역 + 단조 충족 + 합리적 시간).
+            # v8 시도 (8x8 0.13 reveal 200 nodes) — 3 분/puzzle 발견되어 n=50 비현실 → v7 유지.
             'grid_size': (8, 8),
             'mine_ratio': 0.18,
             'reveal_ratio': 0.16,
             'max_effective_reveal_ratio': 0.38,
             'min_solver_nodes': 120,
             'reveal_order': 'low_info',
-            'description': '8x8 grid, denser mines and sparser reveals',
-        },
+            'description': '8x8 grid, denser mines and sparser reveals'
+        }
     }
 
     def __init__(self, seed: int = 42):

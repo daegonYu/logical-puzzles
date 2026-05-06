@@ -26,6 +26,21 @@ from enum import Enum
 MAX_SOLUTIONS = 1  # Only allow exactly 1 solution for ALL difficulties
 
 
+# Module-level cache: candidate space strings per num_digits.
+# 6-digit space = 151200 strings; rebuilding each retry was a hot loop.
+# Returned list is shared (callers must not mutate); they currently rebind to a
+# new filtered list via list-comprehension, so this is safe.
+_CANDIDATE_SPACE_CACHE: Dict[int, List[str]] = {}
+
+
+def _get_candidate_space(num_digits: int) -> List[str]:
+    cached = _CANDIDATE_SPACE_CACHE.get(num_digits)
+    if cached is None:
+        cached = [''.join(p) for p in itertools.permutations('0123456789', num_digits)]
+        _CANDIDATE_SPACE_CACHE[num_digits] = cached
+    return cached
+
+
 @dataclass
 class Hint:
     guess: str
@@ -50,19 +65,21 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
     # just by the final candidate-space size. Hard should therefore prefer
     # ball-heavy, low-strike hints that require multi-hint intersection.
     "easy": {
-        # v6: top models hit 97-100% at v4. Reduce hints to 3-4 (was 4-5)
-        # for tighter inference. Keep 3-digit small space.
+        # v7.5: gpt-5.4-mini 84% (E) < 96% (M, 5-digit) — easy 가 medium 보다 어려운
+        # 비단조. 3-digit 공간(720)에 hints 3-4 만이라 ambiguity 잔존. hints 4-5 + balls
+        # 범위 확장 → 정보량↑, easy 가 진짜 쉬워지도록.
         "num_digits": 3,
-        "min_hints": 3,
-        "max_hints": 4,
+        "min_hints": 4,
+        "max_hints": 5,
         "preferred_strikes": (0, 2),
-        "preferred_balls": (2, 3),
-        "target_residual": (1, 12),
+        "preferred_balls": (1, 3),
+        "target_residual": (1, 8),
         "min_ball_heavy_ratio": 0.30,
     },
     "medium": {
         # v7.3: 사용자 지시 — easy(3-digit) 와 명확히 분리. 5-digit 채택 (4-digit 보다 어렵고
         # 6-digit hard 보다 빠른 generation). 3 hints + ball_heavy 0.75.
+        # v8 시도 (medium=v7 hard) → smoke 9분 0 produced timeout → v7 회귀.
         "num_digits": 5,
         "min_hints": 3,
         "max_hints": 3,
@@ -74,6 +91,7 @@ DIFFICULTY_CONFIGS: Dict[str, Dict] = {
     "hard": {
         # v7.4: strikes (0,0) 너무 tight (18min 0 puzzle). 0-1 strike 허용 +
         # ball_heavy 0.80. medium(5-digit) 와 자릿수 +1 + ball_heavy ↑0.05 → 어려움.
+        # v8 재tighten 시도는 smoke 단계에서 medium 통과 못 함 → v7 유지.
         "num_digits": 6,
         "min_hints": 3,
         "max_hints": 4,
@@ -99,12 +117,15 @@ class BullsAndCows:
     def calculate_strikes_balls(self, secret: str, guess: str) -> Tuple[int, int]:
         if len(secret) != len(guess):
             raise ValueError("Secret and guess must have the same length")
+        # Set lookup is O(1) per "in" check vs O(n) for str.__contains__.
+        # Hot loop: invoked O(num_digits!) times per puzzle generate retry.
+        secret_set = set(secret)
         strikes = 0
         balls = 0
         for i, digit in enumerate(guess):
             if digit == secret[i]:
                 strikes += 1
-            elif digit in secret:
+            elif digit in secret_set:
                 balls += 1
         return strikes, balls
 
@@ -437,7 +458,8 @@ class ProblemGenerator:
                 target_size=36 if difficulty == Difficulty.EASY else 28,
             )
 
-            candidate_space = [''.join(p) for p in itertools.permutations('0123456789', num_digits)]
+            # Cached: avoids rebuilding 151200-element list per retry for 6-digit hard.
+            candidate_space = _get_candidate_space(num_digits)
 
             if difficulty == Difficulty.HARD:
                 structured = self._select_hard_hint_sequence(
@@ -449,7 +471,10 @@ class ProblemGenerator:
                 solutions = [secret]
             else:
                 hints = []
-                solutions = candidate_space
+                # Copy so subsequent filter rebinds don't affect cache. (List
+                # comprehensions later create new lists; initial bind would
+                # otherwise alias the cache.)
+                solutions = list(candidate_space)
                 while len(hints) < max_hints[difficulty]:
                     if len(solutions) == 1 and len(hints) >= min_hints[difficulty]:
                         break

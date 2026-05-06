@@ -287,35 +287,81 @@ def generate_complete(seed: Optional[int] = None) -> Grid:
 # ============================================================================
 
 def count_solutions(puzzle: Grid, limit: int = 2) -> int:
+    """퍼즐의 해 개수를 센다 (limit 도달 시 조기 종료).
+
+    제약은 row/col/box 별 비트마스크로 점진적으로 유지: O(81) 셀 후보 계산을
+    O(1) 로 압축. 이전 구현은 매 재귀 단계마다 27 셀(행+열+박스)을 다시
+    스캔했음.
+    """
     grid = copy_grid(puzzle)
+    # bit i (1..9) = 해당 unit 에 숫자 i 가 이미 있음
+    row_mask = [0] * 9
+    col_mask = [0] * 9
+    box_mask = [0] * 9
+    full_mask = 0b1111111110  # bits 1..9 set
+    for r in range(9):
+        for c in range(9):
+            v = grid[r][c]
+            if v != 0:
+                bit = 1 << v
+                b = (r // 3) * 3 + (c // 3)
+                row_mask[r] |= bit
+                col_mask[c] |= bit
+                box_mask[b] |= bit
+
     count = [0]
 
-    def solve(g: Grid) -> bool:
+    def solve() -> bool:
         if count[0] >= limit:
             return True
+
+        # MRV: 후보가 가장 적은 빈칸 선택
         min_candidates = 10
-        best_cell = None
+        best_cell = None  # (r, c, candidate_bits)
         for r in range(9):
+            row_used = row_mask[r]
             for c in range(9):
-                if g[r][c] == 0:
-                    cands = get_cell_candidates(g, r, c)
-                    if len(cands) == 0:
-                        return False
-                    if len(cands) < min_candidates:
-                        min_candidates = len(cands)
-                        best_cell = (r, c, cands)
+                if grid[r][c] != 0:
+                    continue
+                b = (r // 3) * 3 + (c // 3)
+                avail = full_mask & ~(row_used | col_mask[c] | box_mask[b])
+                pop = bin(avail).count('1')
+                if pop == 0:
+                    return False  # 모순
+                if pop < min_candidates:
+                    min_candidates = pop
+                    best_cell = (r, c, avail)
+                    if pop == 1:
+                        break  # naked single — 더 줄어들 수 없음
+            if best_cell is not None and min_candidates == 1:
+                break
+
         if best_cell is None:
+            # 모두 채워짐 = 해 발견
             count[0] += 1
             return count[0] >= limit
-        r, c, cands = best_cell
-        for num in cands:
-            g[r][c] = num
-            if solve(g):
+
+        r, c, avail = best_cell
+        b = (r // 3) * 3 + (c // 3)
+        bits = avail
+        while bits:
+            low = bits & -bits  # 최하위 비트
+            num = low.bit_length() - 1
+            grid[r][c] = num
+            row_mask[r] |= low
+            col_mask[c] |= low
+            box_mask[b] |= low
+            if solve():
                 return True
-            g[r][c] = 0
+            grid[r][c] = 0
+            row_mask[r] ^= low
+            col_mask[c] ^= low
+            box_mask[b] ^= low
+            bits &= bits - 1
+
         return False
 
-    solve(grid)
+    solve()
     return count[0]
 
 
@@ -712,20 +758,25 @@ class DifficultyConfig:
     forbidden_rate_labels: Set[str] = field(default_factory=set)
 
 
+# Difficulty configurations.
+#
+# Gemini 3 Flash is very strong at Sudoku when many givens are visible, and
+# very weak on "minimal" puzzles that require advanced deduction techniques.
+# The old configs created a 90% cliff between medium (97%) and hard (7%).
+# New configs rely purely on `givens_count` as the difficulty knob and
+# disable the `minimal` flag everywhere — this yields a smoother progression.
 DIFFICULTY_CONFIGS = {
-    # Difficulty configurations.
-    #
-    # Gemini 3 Flash is very strong at Sudoku when many givens are visible, and
-    # very weak on "minimal" puzzles that require advanced deduction techniques.
-    # The old configs created a 90% cliff between medium (97%) and hard (7%).
-    # New configs rely purely on `givens_count` as the difficulty knob and
-    # disable the `minimal` flag everywhere — this yields a smoother progression.
+    # v2 recalibration: previous 35-37 givens was still LLM-hard (all models ~0%).
+    # 60 givens means 21 blanks — L1 naked-single scan alone should solve, enabling
+    # frontier models to hit target 75%. medium / hard progressively reduce givens.
     'easy': DifficultyConfig(
         # v6: gemini ~52 / gpt-5.4-mini 98 — 충분한 gradient (절벽 + best spread).
         # v7 시도 (65 givens) 는 사용자 판정상 불필요 → v6 유지.
         min_givens=48,
         max_givens=52,
         target_givens=50,
+        symmetry='rot180',
+        minimal=False,
         forbid_trivial=False,
         max_search_nodes=15,
         spotcheck_k=3,
@@ -733,9 +784,13 @@ DIFFICULTY_CONFIGS = {
     'medium': DifficultyConfig(
         # v6: gpt-5.4-mini 97% / gemini 13% at v2 40 givens — bimodal.
         # Reduce to 32-36 to bridge gap (between v2 medium 40 and v2 hard 30).
+        # v8: 사용자 판정 — sudoku 는 이미 충분한 gap (gpt-5.4-mini 100/70/20,
+        # gemini 60/5/0) → v7 유지.
         min_givens=32,
         max_givens=36,
         target_givens=34,
+        symmetry='rot180',
+        minimal=False,
         forbid_trivial=False,
         max_search_nodes=300,
         spotcheck_k=5,
@@ -743,12 +798,15 @@ DIFFICULTY_CONFIGS = {
     'hard': DifficultyConfig(
         # v6: gpt-5.4-mini 43% / gemini 0% at v2 30 givens — gemini struggling.
         # Push to 24-28 givens for tougher reasoning model challenge.
+        # v8: 사용자 판정 — 이미 충분한 gap → v7 유지.
         min_givens=24,
         max_givens=28,
         target_givens=26,
+        symmetry='rot180',
+        minimal=False,
         forbid_trivial=False,
         spotcheck_k=6,
-    ),
+    )
 }
 
 
