@@ -25,45 +25,71 @@ class HanoiEvaluator(BaseEvaluator):
     답변 형식: (disk, from, to) 튜플
     """
     
-    SYSTEM_PROMPT = """### Instructions
-You are an expert at Tower of Hanoi puzzles.
-Always end with exactly one Answer: line containing a 3-integer tuple.
+    SYSTEM_PROMPT = """You are an expert puzzle solver specializing in the Tower of Hanoi.
 
-### Answer format by question type
-- Move query (which disk moves, from where, to where) → Answer: (disk, from_peg, to_peg)
-- Disk location (where is disk d after k moves) → Answer: (disk, peg, peg)
-- Three disk locations (where are disk d1, d2, d3) → Answer: (peg_of_d1, peg_of_d2, peg_of_d3)
-- Disks on a peg (list the disks on peg X) → Answer: (disk1, disk2, peg_X)
-- Move count for disk k → Answer: (k, count, count)
-- Corrupted board (one disk misplaced, find+fix, then continue) → Answer: (top_peg0, top_peg1, top_peg2)
+[PREREQUISITES & RULES]
 
-### Rules
-1. Follow the peg labels given in the user message.
-2. Explain your reasoning, then write exactly one Answer: line at the end.
-3. Do not add any text after the Answer: line.
+Standard rules apply: only one disk can be moved at a time, and a larger disk cannot be placed on top of a smaller disk. Disks are numbered from 1 (smallest) to n (largest).
+The optimal solution for 'n' disks requires exactly 2^n - 1 moves.
+In an optimal sequence, a specific Disk 'd' moves exactly 2^(n-d) times.
+[ANSWER FORMAT INSTRUCTIONS]
+You must output your final answer formatted exactly as a tuple wrapped inside tags. Format rules based on the question asked:
 
-### Output format
-Answer: (a, b, c)"""
+Minimum number of moves needed: (moves, moves, moves)
+How many times a specific disk moves: (disk_number, moves, moves)
+Which disk is moved on the k-th move / Describe a specific move: (disk_number, from_peg, to_peg)
+On which peg is a specific disk located: (disk_number, peg_number, peg_number)
+Which disks are on a specific peg: (*disks_in_ascending_order, peg_number, peg_number). If empty, use 'none' for the disk part.
+How many disks are in this Tower of Hanoi puzzle: (n, n, n)
+On which move number does Disk d first move, and on which move number does it last move: (first_move_number, last_move_number, disk_number)
+Provide ONLY the tag with the tuple inside. Do not provide any step-by-step reasoning, mathematical formulas, or additional text."""
 
-    KOREAN_SYSTEM_PROMPT = """### 지시사항
-하노이 탑 퍼즐 전문가입니다.
-반드시 마지막 줄을 Answer: 형식으로 작성하세요.
 
-### 문제 유형별 답변 형식
-- 이동 문제 (어떤 원판이 어디서 어디로) → Answer: (원반, 출발기둥, 도착기둥)
-- 원판 위치 (k번째 이동 후 원판 d의 위치) → Answer: (원판, 기둥, 기둥)
-- 세 원판 위치 (원판 d1, d2, d3의 위치) → Answer: (d1의기둥, d2의기둥, d3의기둥)
-- 기둥의 원판 목록 → Answer: (원판1, 원판2, 기둥번호)
-- 원판 k의 이동 횟수 → Answer: (k, 횟수, 횟수)
-- 오류 보드 (1개 오배치, 찾아서 교정 후 계속) → Answer: (기둥0최상단, 기둥1최상단, 기둥2최상단)
+    SYSTEM_PROMPT_Easy ="""
+You are an expert puzzle solver specializing in the Tower of Hanoi. Standard rules apply: only one disk can be moved at a time, and a larger disk cannot be placed on top of a smaller disk. Disks are numbered from 1 (smallest) to n (largest).
 
-### 규칙
-1. 사용자 메시지의 기둥 번호를 따르세요.
-2. 풀이 과정을 설명한 후 마지막에 Answer: 줄을 하나만 작성하세요.
-3. Answer: 줄 이후에는 텍스트를 추가하지 마세요.
+You must output your final answer formatted exactly as a tuple wrapped inside tags. Format rules based on the question asked:
 
-### 출력 형식
-Answer: (a, b, c)"""
+Minimum number of moves needed: (moves, moves, moves)
+How many times a specific disk moves: (disk_number, moves, moves)
+Which disk is moved on the k-th move / Describe a specific move: (disk_number, from_peg, to_peg)
+On which peg is a specific disk located: (disk_number, peg_number, peg_number)
+Which disks are on a specific peg: (*disks_in_ascending_order, peg_number, peg_number). If empty, use 'none' for the disk part.
+Provide ONLY the tag with the tuple inside. Do not provide any step-by-step reasoning, mathematical formulas, or additional text
+
+    """
+    KOREAN_SYSTEM_PROMPT = """당신은 하노이 탑(Tower of Hanoi) 퍼즐을 전문으로 해결하는 전문가입니다.
+
+    [사전 지식 및 규칙]
+    표준 규칙이 적용됩니다: 한 번에 하나의 원판만 이동할 수 있으며, 큰 원판을 작은 원판 위에 놓을 수 없습니다. 원판은 1(가장 작음)부터 n(가장 큼)까지 번호가 매겨져 있습니다.
+    'n'개의 원판을 옮기는 최적의 해법은 정확히 2^n - 1번의 이동이 필요합니다.
+    최적의 이동 순서에서, 특정 원판 'd'는 정확히 2^(n-d)번 이동합니다.
+
+    [답변 형식 지침]
+    최종 답변은 반드시 태그 안에 튜플 형태로 작성해야 합니다. 질문의 종류에 따른 형식 규칙은 다음과 같습니다:
+
+    - 필요한 최소 이동 횟수: (이동횟수, 이동횟수, 이동횟수)
+    - 특정 원판의 이동 횟수: (원판번호, 이동횟수, 이동횟수)
+    - k번째 이동에 움직이는 원판 / 특정 이동 설명: (원판번호, 출발기둥, 도착기둥)
+    - 특정 원판이 위치한 기둥: (원판번호, 기둥번호, 기둥번호)
+    - 특정 기둥에 있는 원판들: (*오름차순_원판들, 기둥번호, 기둥번호). 만약 비어있다면 원판 부분에 'none'을 사용.
+    - 이 하노이 탑 퍼즐에 있는 원판의 총 개수: (n, n, n)
+    - 원판 d가 처음 이동하는 횟수와 마지막으로 이동하는 횟수: (첫이동번째, 마지막이동번째, 원판번호)
+
+    튜플이 포함된 태그만 제공하십시오. 단계별 추론 과정, 수학 공식 또는 추가 텍스트를 제공하지 마십시오."""
+
+
+    KOREAN_SYSTEM_PROMPT_Easy = """당신은 하노이 탑(Tower of Hanoi) 퍼즐을 전문으로 해결하는 전문가입니다. 표준 규칙이 적용됩니다: 한 번에 하나의 원판만 이동할 수 있으며, 큰 원판을 작은 원판 위에 놓을 수 없습니다. 원판은 1(가장 작음)부터 n(가장 큼)까지 번호가 매겨져 있습니다.
+
+    최종 답변은 반드시 태그 안에 튜플 형태로 작성해야 합니다. 질문의 종류에 따른 형식 규칙은 다음과 같습니다:
+
+    - 필요한 최소 이동 횟수: (이동횟수, 이동횟수, 이동횟수)
+    - 특정 원판의 이동 횟수: (원판번호, 이동횟수, 이동횟수)
+    - k번째 이동에 움직이는 원판 / 특정 이동 설명: (원판번호, 출발기둥, 도착기둥)
+    - 특정 원판이 위치한 기둥: (원판번호, 기둥번호, 기둥번호)
+    - 특정 기둥에 있는 원판들: (*오름차순_원판들, 기둥번호, 기둥번호). 만약 비어있다면 원판 부분에 'none'을 사용.
+
+    튜플이 포함된 태그만 제공하십시오. 단계별 추론 과정, 수학 공식 또는 추가 텍스트를 제공하지 마십시오."""
 
     def _is_korean(self, puzzle: Optional[Dict] = None) -> bool:
         """Prefer task_name (e.g. …_ko_easy); else infer from expected answer."""
@@ -75,11 +101,28 @@ Answer: (a, b, c)"""
             expected = puzzle.get("answer", "")
             return bool(re.search(r"[가-힣]", str(expected)))
         return False
+    
+    def _is_easy(self, puzzle: Optional[Dict] = None) -> bool:
+       
+        if puzzle is not None:
+            expected = puzzle.get("difficulty", "")
+            if expected.lower()=="easy":
+               return True 
+            else:
+               return False
 
     def _get_system_prompt(self, puzzle: Dict) -> str:
-        if self._is_korean(puzzle):
-            return self.KOREAN_SYSTEM_PROMPT
-        return self.SYSTEM_PROMPT
+        
+        if self._is_easy(puzzle):
+            if self._is_korean(puzzle):
+                return self.KOREAN_SYSTEM_PROMPT_Easy
+            else:
+                return self.SYSTEM_PROMPT_Easy
+        else:
+            if self._is_korean(puzzle):
+                return self.KOREAN_SYSTEM_PROMPT
+            else:
+                return self.SYSTEM_PROMPT
 
     def _evaluate_single(
         self,
